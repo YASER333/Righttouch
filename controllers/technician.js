@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 import TechnicianProfile from "../Schemas/TechnicianProfile.js";
+import ServiceBooking from "../Schemas/ServiceBooking.js";
+import JobBroadcast from "../Schemas/TechnicianBroadcast.js";
 
 const isValidObjectId = mongoose.Types.ObjectId.isValid;
 const TECHNICIAN_STATUSES = ["pending", "trained", "approved", "suspended"];
@@ -264,7 +266,54 @@ export const updateTechnician = async (req, res) => {
         });
       }
 
+      const isGoingOnline = Boolean(availability.isOnline) && !technician.availability.isOnline;
       technician.availability.isOnline = Boolean(availability.isOnline);
+
+      // 🔥 When technician goes online, broadcast existing unassigned jobs
+      if (isGoingOnline && technician.skills.length > 0) {
+        try {
+          const technicianServiceIds = technician.skills
+            .map(s => s.serviceId)
+            .filter(Boolean)
+            .map(id => new mongoose.Types.ObjectId(id));
+
+          if (technicianServiceIds.length > 0) {
+            // Find unassigned bookings matching technician's skills
+            const unassignedBookings = await ServiceBooking.find({
+              serviceId: { $in: technicianServiceIds },
+              technicianId: null, // No technician assigned yet
+              status: "broadcasted",
+            }).select("_id serviceId");
+
+            // Check which bookings this technician hasn't received yet
+            const existingBroadcasts = await JobBroadcast.find({
+              technicianId: id,
+              bookingId: { $in: unassignedBookings.map(b => b._id) },
+            }).select("bookingId");
+
+            const existingBookingIds = new Set(
+              existingBroadcasts.map(b => b.bookingId.toString())
+            );
+
+            // Create broadcasts for new jobs
+            const newBroadcasts = unassignedBookings
+              .filter(booking => !existingBookingIds.has(booking._id.toString()))
+              .map(booking => ({
+                bookingId: booking._id,
+                technicianId: id,
+                status: "sent",
+              }));
+
+            if (newBroadcasts.length > 0) {
+              await JobBroadcast.insertMany(newBroadcasts);
+              console.log(`✅ Broadcasted ${newBroadcasts.length} existing jobs to technician ${id}`);
+            }
+          }
+        } catch (broadcastError) {
+          console.error("⚠️ Error broadcasting existing jobs:", broadcastError.message);
+          // Don't fail the online status update if broadcast fails
+        }
+      }
     }
 
     await technician.save();
