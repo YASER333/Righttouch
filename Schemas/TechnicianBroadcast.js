@@ -23,15 +23,9 @@ const jobBroadcastSchema = new mongoose.Schema(
       index: true,
     },
 
-    // Business expiry: treat expiresAt < now as expired, even if TTL cleanup hasn't run yet.
-    expiresAt: {
-      type: Date,
-      default: () => new Date(Date.now() + 60 * 1000), // 60s
-    },
-
     status: {
       type: String,
-      enum: ["sent", "accepted", "rejected", "expired"],
+      enum: ["sent", "accepted", "rejected"],
       default: "sent",
       index: true,
     },
@@ -45,7 +39,7 @@ jobBroadcastSchema.index(
   { unique: true }
 );
 
-// TTL cleanup (not business logic)
-jobBroadcastSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+// ❌ REMOVED: TTL index that was auto-deleting jobs after 60 seconds
+// 🔄 Jobs now remain in broadcast until: acceptance-based removal only
 
 export default mongoose.models.JobBroadcast || mongoose.model("JobBroadcast", jobBroadcastSchema);
