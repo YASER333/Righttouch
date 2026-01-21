@@ -1,4 +1,4 @@
-﻿  import bcrypt from "bcryptjs";
+  import bcrypt from "bcryptjs";
   import jwt from "jsonwebtoken";
   import mongoose from "mongoose";
 
@@ -769,16 +769,13 @@
       }
     });
 
-    // Technician geo location (optional) -> stored as GeoJSON Point
+    // Technician geo location (optional) -> stored as GeoJSON Point + strings for display
     if (role === "Technician" && (updateData.latitude !== undefined || updateData.longitude !== undefined)) {
       const lat = toFiniteNumber(updateData.latitude);
       const lng = toFiniteNumber(updateData.longitude);
 
-      delete updateData.latitude;
-      delete updateData.longitude;
-
       if (lat === null || lng === null) {
-        return fail(res, 400, "latitude and longitude must be valid numbers", "VALIDATION_ERROR", {
+        return fail(res, 400, "latitude and longitude must be valid numbers or formatted strings", "VALIDATION_ERROR", {
           required: ["latitude", "longitude"],
         });
       }
@@ -790,7 +787,13 @@
         });
       }
 
+      // Store GeoJSON for matching
       updateData.location = { type: "Point", coordinates: [lng, lat] };
+      
+      // Also keep string values from request (they may already be formatted strings like "11.0254° N")
+      // If the user sent numeric values, convert to strings
+      updateData.latitude = String(req.body.latitude || "");
+      updateData.longitude = String(req.body.longitude || "");
     }
 
     updateData.profileComplete = true;
