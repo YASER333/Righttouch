@@ -1,5 +1,33 @@
 import mongoose from "mongoose";
 
+const geoPointSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ["Point"],
+      required: true,
+    },
+    coordinates: {
+      type: [Number],
+      required: true,
+      validate: {
+        validator: function (v) {
+          return (
+            Array.isArray(v) &&
+            v.length === 2 &&
+            typeof v[0] === "number" &&
+            Number.isFinite(v[0]) &&
+            typeof v[1] === "number" &&
+            Number.isFinite(v[1])
+          );
+        },
+        message: "location.coordinates must be [longitude, latitude]",
+      },
+    },
+  },
+  { _id: false }
+);
+
 const technicianProfileSchema = new mongoose.Schema(
   {
     userId: {
@@ -113,6 +141,7 @@ const technicianProfileSchema = new mongoose.Schema(
     /* ==========================
        🔧 TECHNICIAN OPERATIONAL DATA
     ========================== */
+    
     skills: [
       {
         serviceId: {

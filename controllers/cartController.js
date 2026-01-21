@@ -514,7 +514,7 @@ export const checkout = async (req, res) => {
       paymentMode,
     };
 
-    const notificationsToSend = [];
+    const serviceBroadcastTasks = [];
 
     // Create Service Bookings
     for (const cartItem of validServiceItems) {
@@ -523,54 +523,47 @@ export const checkout = async (req, res) => {
       // Calculate amount
       const baseAmount = service.serviceCost * cartItem.quantity;
 
-      const serviceBooking = await ServiceBooking.create([{
+      const hasCoords =
+        typeof address?.latitude === "number" &&
+        Number.isFinite(address.latitude) &&
+        typeof address?.longitude === "number" &&
+        Number.isFinite(address.longitude);
+
+      const serviceBookingDoc = {
         customerProfileId,
         serviceId: cartItem.itemId,
         baseAmount,
         address: address.addressLine,
         addressId: address._id,
         scheduledAt: scheduledAt || new Date(),
-        status: "broadcasted",
-      }], { session });
+        status: "requested", // phase 1: booking created, broadcast happens post-commit
+      };
 
-      // Broadcast job to eligible technicians (KYC approved + profileComplete + workStatus approved + online + skill match + nearby/area match)
-      // Geo selection runs outside the transaction session; writes remain transactional.
-      const technicians = await findEligibleTechniciansForService({
+      if (hasCoords) {
+        serviceBookingDoc.location = {
+          type: "Point",
+          coordinates: [address.longitude, address.latitude],
+        };
+      }
+
+      const serviceBooking = await ServiceBooking.create([serviceBookingDoc], { session });
+
+      // Phase 2 happens after commit: match technicians + create JobBroadcast + emit sockets/push
+      serviceBroadcastTasks.push({
+        bookingId: serviceBooking[0]._id,
         serviceId: cartItem.itemId,
-        address: {
+        serviceName: service.serviceName,
+        baseAmount,
+        scheduledAt: scheduledAt || new Date(),
+        addressSnapshot: {
+          addressLine: address.addressLine,
           city: address.city,
           state: address.state,
           pincode: address.pincode,
           latitude: address.latitude,
           longitude: address.longitude,
         },
-        radiusMeters: 5000,
-        limit: 50,
-        enableGeo: true,
       });
-
-      if (technicians.length > 0) {
-        await JobBroadcast.insertMany(
-          technicians.map((t) => ({
-            bookingId: serviceBooking[0]._id,
-            technicianId: t._id,
-            status: "sent",
-          })),
-          { session, ordered: false }
-        );
-
-        notificationsToSend.push({
-          technicianIds: technicians.map((t) => t._id.toString()),
-          jobData: {
-            bookingId: serviceBooking[0]._id,
-            serviceId: service._id,
-            serviceName: service.serviceName,
-            baseAmount,
-            address: address.addressLine,
-            scheduledAt: scheduledAt || new Date(),
-          },
-        });
-      }
 
       bookingResults.serviceBookings.push({
         bookingId: serviceBooking[0]._id,
@@ -578,7 +571,7 @@ export const checkout = async (req, res) => {
         serviceName: service.serviceName,
         quantity: cartItem.quantity,
         baseAmount,
-        status: "broadcasted",
+        status: "requested",
       });
 
       bookingResults.totalAmount += baseAmount;
@@ -624,14 +617,67 @@ export const checkout = async (req, res) => {
 
     await session.commitTransaction();
 
-    // Send notifications AFTER successful commit (non-blocking)
-    try {
-      for (const item of notificationsToSend) {
-        await broadcastJobToTechnicians(req.io, item.technicianIds, item.jobData);
+    // Phase 2: after commit, run broadcast asynchronously (non-blocking)
+    setImmediate(async () => {
+      try {
+        for (const task of serviceBroadcastTasks) {
+          const technicians = await findEligibleTechniciansForService({
+            serviceId: task.serviceId,
+            address: {
+              city: task.addressSnapshot.city,
+              state: task.addressSnapshot.state,
+              pincode: task.addressSnapshot.pincode,
+              latitude: task.addressSnapshot.latitude,
+              longitude: task.addressSnapshot.longitude,
+            },
+            radiusMeters: 5000,
+            limit: 50,
+            enableGeo: true,
+          });
+
+          if (!technicians || technicians.length === 0) {
+            continue;
+          }
+
+          const now = new Date();
+
+          try {
+            await JobBroadcast.insertMany(
+              technicians.map((t) => ({
+                bookingId: task.bookingId,
+                technicianId: t._id,
+                status: "sent",
+                sentAt: now,
+                expiresAt: new Date(now.getTime() + 60 * 1000),
+              })),
+              { ordered: false }
+            );
+          } catch (e) {
+            // Ignore duplicate key errors due to unique (bookingId, technicianId)
+            if (e?.code !== 11000) {
+              throw e;
+            }
+          }
+
+          // Mark booking broadcasted only if it hasn't been assigned yet
+          await ServiceBooking.updateOne(
+            { _id: task.bookingId, status: "requested", technicianId: null },
+            { $set: { status: "broadcasted" } }
+          );
+
+          await broadcastJobToTechnicians(req.io, technicians.map((t) => t._id.toString()), {
+            bookingId: task.bookingId,
+            serviceId: task.serviceId,
+            serviceName: task.serviceName,
+            baseAmount: task.baseAmount,
+            address: task.addressSnapshot.addressLine,
+            scheduledAt: task.scheduledAt,
+          });
+        }
+      } catch (notifErr) {
+        console.error("⚠️ Post-commit broadcast failed (non-blocking):", notifErr.message);
       }
-    } catch (notifErr) {
-      console.error("⚠️ Checkout notifications failed (non-blocking):", notifErr.message);
-    }
+    });
 
     res.status(201).json({
       success: true,

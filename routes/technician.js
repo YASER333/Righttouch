@@ -69,9 +69,10 @@ router.post(
   uploadTechnicianKycDocuments
 );
 
+// IMPORTANT: define '/me' BEFORE '/:technicianId' so 'me' doesn't get treated as an id.
 router.get("/technician/kyc/me", Auth, isTechnician, getMyTechnicianKyc);
-router.get("/technician/kyc/:technicianId", Auth, getTechnicianKyc);
 router.get("/technician/kyc", Auth, getAllTechnicianKyc);
+router.get("/technician/kyc/:technicianId", Auth, getTechnicianKyc);
 router.put("/technician/kyc/verify", Auth, verifyTechnicianKyc);
 router.delete("/technician/deletekyc/:technicianId", Auth, deleteTechnicianKyc);
 

@@ -74,17 +74,24 @@ export const getMyJobs = async (req, res) => {
     if (!technician.trainingCompleted) {
       return res.status(403).json({
         success: false,
-        message: "Training must be completed before viewing job broadcasts. Contact admin to complete your training.",
-        result: { 
+        message:
+          "Training must be completed before viewing job broadcasts. Contact admin to complete your training.",
+        result: {
           trainingCompleted: false,
-          workStatus: technician.workStatus 
+          workStatus: technician.workStatus,
         },
       });
     }
 
+    const now = new Date();
+
     const jobs = await JobBroadcast.find({
       technicianId: technicianProfileId,
       status: "sent",
+      $or: [
+        { expiresAt: { $gt: now } },
+        { expiresAt: { $exists: false } },
+      ],
     })
       .populate({
         path: "bookingId",
@@ -235,6 +242,23 @@ export const respondToJob = async (req, res) => {
       });
     }
 
+    // Treat as expired if time passed (even if TTL hasn't deleted it yet)
+    const now = new Date();
+    if (job.expiresAt && job.expiresAt.getTime() <= now.getTime()) {
+      await JobBroadcast.updateOne(
+        { _id: job._id, status: "sent" },
+        { $set: { status: "expired" } },
+        { session }
+      );
+
+      await session.commitTransaction();
+      return res.status(409).json({
+        success: false,
+        message: "Job expired",
+        result: {},
+      });
+    }
+
     if (job.technicianId.toString() !== technicianProfileId.toString()) {
       await session.abortTransaction();
       return res.status(403).json({
@@ -245,8 +269,20 @@ export const respondToJob = async (req, res) => {
     }
 
     if (status === "rejected") {
-      job.status = "rejected";
-      await job.save({ session });
+      const rejected = await JobBroadcast.updateOne(
+        { _id: job._id, technicianId: technicianProfileId, status: "sent" },
+        { $set: { status: "rejected" } },
+        { session }
+      );
+
+      if (rejected.modifiedCount !== 1) {
+        await session.abortTransaction();
+        return res.status(409).json({
+          success: false,
+          message: "Job already processed",
+          result: {},
+        });
+      }
       await session.commitTransaction();
 
       return res.status(200).json({
@@ -256,9 +292,10 @@ export const respondToJob = async (req, res) => {
       });
     }
 
+    // First accept wins (atomic): only assign if still broadcasted AND unassigned
     const booking = await ServiceBooking.findOneAndUpdate(
-      { _id: job.bookingId, status: "broadcasted" },
-      { technicianId: technicianProfileId, status: "accepted" },
+      { _id: job.bookingId, status: "broadcasted", technicianId: null },
+      { technicianId: technicianProfileId, status: "accepted", assignedAt: now },
       { new: true, session }
     );
 
@@ -271,8 +308,20 @@ export const respondToJob = async (req, res) => {
       });
     }
 
-    job.status = "accepted";
-    await job.save({ session });
+    const accepted = await JobBroadcast.updateOne(
+      { _id: job._id, technicianId: technicianProfileId, status: "sent" },
+      { $set: { status: "accepted" } },
+      { session }
+    );
+
+    if (accepted.modifiedCount !== 1) {
+      await session.abortTransaction();
+      return res.status(409).json({
+        success: false,
+        message: "Job already processed",
+        result: {},
+      });
+    }
 
     // Update all other broadcasts for this booking to expired
     const otherBroadcasts = await JobBroadcast.find(
@@ -282,7 +331,7 @@ export const respondToJob = async (req, res) => {
 
     await JobBroadcast.updateMany(
       { bookingId: booking._id, _id: { $ne: job._id } },
-      { status: "expired" },
+      { $set: { status: "expired", expiresAt: now } },
       { session }
     );
 

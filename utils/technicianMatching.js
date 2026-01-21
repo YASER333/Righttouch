@@ -50,12 +50,16 @@ export const findEligibleTechniciansForService = async ({
     "skills.serviceId": serviceObjectId,
   };
 
+  const lat = Number(address?.latitude);
+  const lng = Number(address?.longitude);
+
   const hasCoords =
-    address &&
-    typeof address.latitude === "number" &&
-    Number.isFinite(address.latitude) &&
-    typeof address.longitude === "number" &&
-    Number.isFinite(address.longitude);
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180;
 
   // 1) Prefer geo query when possible (requires technicians to have `location`)
   if (enableGeo && hasCoords) {
@@ -65,7 +69,7 @@ export const findEligibleTechniciansForService = async ({
         $nearSphere: {
           $geometry: {
             type: "Point",
-            coordinates: [address.longitude, address.latitude],
+            coordinates: [lng, lat],
           },
           $maxDistance: radiusMeters,
         },

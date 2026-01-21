@@ -80,14 +80,29 @@ export const createBooking = async (req, res) => {
     }
 
     // 1️⃣ Create booking
-    const booking = await ServiceBooking.create({
+    const bookingDoc = {
       customerProfileId,
       serviceId,
       baseAmount: baseAmountNum,
       address: addressForBooking,
       scheduledAt,
       status: "broadcasted",
-    });
+    };
+
+    const hasCoords =
+      typeof addressForMatching?.latitude === "number" &&
+      Number.isFinite(addressForMatching.latitude) &&
+      typeof addressForMatching?.longitude === "number" &&
+      Number.isFinite(addressForMatching.longitude);
+
+    if (hasCoords) {
+      bookingDoc.location = {
+        type: "Point",
+        coordinates: [addressForMatching.longitude, addressForMatching.latitude],
+      };
+    }
+
+    const booking = await ServiceBooking.create(bookingDoc);
 
     // 2️⃣ Find eligible technicians (KYC approved + profileComplete + workStatus approved + online + skill match + nearby/area match)
     const technicians = await findEligibleTechniciansForService({

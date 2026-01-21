@@ -24,6 +24,15 @@ if (!process.env.JWT_SECRET) {
 const App = express();
 const httpServer = createServer(App);
 
+// Ensure req.ip works behind proxies (Render/Nginx/etc.)
+// Set TRUST_PROXY=true/1 in production if you're behind a reverse proxy.
+const trustProxyEnv = process.env.TRUST_PROXY;
+const trustProxy =
+  typeof trustProxyEnv === "string"
+    ? trustProxyEnv === "true" || trustProxyEnv === "1"
+    : process.env.NODE_ENV === "production";
+App.set("trust proxy", trustProxy);
+
 // 🔌 Initialize Socket.IO
 const io = new Server(httpServer, {
   cors: {
@@ -73,6 +82,13 @@ App.use(express.static("public"));
 // - Type checking and sanitization
 
 // 🔒 General API Rate Limiter (applies to all routes)
+const getClientIp = (req) => {
+  const xff = req.headers?.["x-forwarded-for"];
+  if (typeof xff === "string" && xff.trim()) return xff.split(",")[0].trim();
+  if (req.ip) return req.ip;
+  return req.socket?.remoteAddress || "unknown";
+};
+
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // 100 requests per window
@@ -83,6 +99,11 @@ const generalLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // Don't crash the process if req.ip is temporarily unavailable (e.g. aborted connections)
+  validate: { ip: false },
+  keyGenerator: (req) => getClientIp(req),
+  // Socket.IO uses its own transport endpoints; don't rate-limit those via Express
+  skip: (req) => typeof req.path === "string" && req.path.startsWith("/socket.io"),
 });
 
 App.use(generalLimiter);
@@ -123,6 +144,16 @@ App.use("/api/dev", DevUserRoutes);
 // ❗ GLOBAL ERROR HANDLER (MUST BE LAST)
 App.use((err, req, res, next) => {
   console.error("GLOBAL ERROR:", err);
+
+  // body-parser JSON parse errors
+  // Example: SyntaxError: Expected property name or '}' in JSON at position ...
+  if (err && (err.type === "entity.parse.failed" || err.status === 400)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid JSON body. Ensure request body is valid JSON and Content-Type is application/json.",
+      result: {},
+    });
+  }
 
   if (err instanceof multer.MulterError) {
     return res.status(400).json({

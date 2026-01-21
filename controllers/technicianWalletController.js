@@ -140,20 +140,6 @@ export const getWalletHistory = async (req, res) => {
       }
     }
 
-    const wallet = await TechnicianWallet.findOne({ technicianId })
-      .populate("technicianId", "userId skills status");
-
-    if (!wallet) {
-      return res.status(404).json({
-        success: false,
-        message: "Wallet not found",
-        result: {},
-      });
-    }
-
-    const transactions = await TechnicianTransaction.find({ walletId: wallet._id })
-      .populate("walletId", "totalEarnings totalDebits");
-
     const history = await WalletTransaction.find({ technicianId })
       .populate("technicianId", "firstName lastName skills status")
       .sort({ createdAt: -1 });

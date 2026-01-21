@@ -1,5 +1,33 @@
 import mongoose from "mongoose";
 
+const geoPointSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ["Point"],
+      required: true,
+    },
+    coordinates: {
+      type: [Number],
+      required: true,
+      validate: {
+        validator: function (v) {
+          return (
+            Array.isArray(v) &&
+            v.length === 2 &&
+            typeof v[0] === "number" &&
+            Number.isFinite(v[0]) &&
+            typeof v[1] === "number" &&
+            Number.isFinite(v[1])
+          );
+        },
+        message: "location.coordinates must be [longitude, latitude]",
+      },
+    },
+  },
+  { _id: false }
+);
+
 const serviceBookingSchema = new mongoose.Schema(
   {
     // 👤 CUSTOMER
@@ -82,11 +110,20 @@ const serviceBookingSchema = new mongoose.Schema(
       default: "requested",
       index: true,
     },
+
+    assignedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
   },
   { timestamps: true }
 );
 
 // Helpful index for technician dashboard
 serviceBookingSchema.index({ technicianId: 1, status: 1 });
+
+// 2dsphere index for geo queries (optional, but required when using $near for bookings)
+serviceBookingSchema.index({ location: "2dsphere" });
 
 export default mongoose.models.ServiceBooking || mongoose.model("ServiceBooking", serviceBookingSchema);

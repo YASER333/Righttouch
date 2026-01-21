@@ -10,8 +10,8 @@ const customerProfileSchema = new mongoose.Schema(
     },
     email: {
       type: String,
-      unique: true,
-      // sparse: true,
+      default: undefined,
+      set: (v) => (v === null || v === undefined || v === "" ? undefined : v),
       lowercase: true,
       trim: true,
       match: [/^\S+@\S+\.\S+$/, "Invalid email"],
@@ -43,6 +43,17 @@ const customerProfileSchema = new mongoose.Schema(
     },
   },
   { timestamps: true }
+);
+
+// Unique email only when a real string email exists (allows many users without email)
+customerProfileSchema.index(
+  { email: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      email: { $exists: true, $type: "string" },
+    },
+  }
 );
 
 // Ensure customer addresses are stored only in the Address collection.
