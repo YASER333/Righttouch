@@ -49,15 +49,13 @@ const addressSchema = new mongoose.Schema(
     },
 
     latitude: {
-      type: Number,
-      min: -90,
-      max: 90,
+      type: String,
+      trim: true,
     },
 
     longitude: {
-      type: Number,
-      min: -180,
-      max: 180,
+      type: String,
+      trim: true,
     },
 
     isDefault: {
