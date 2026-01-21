@@ -242,23 +242,6 @@ export const respondToJob = async (req, res) => {
       });
     }
 
-    // Treat as expired if time passed (even if TTL hasn't deleted it yet)
-    const now = new Date();
-    if (job.expiresAt && job.expiresAt.getTime() <= now.getTime()) {
-      await JobBroadcast.updateOne(
-        { _id: job._id, status: "sent" },
-        { $set: { status: "expired" } },
-        { session }
-      );
-
-      await session.commitTransaction();
-      return res.status(409).json({
-        success: false,
-        message: "Job expired",
-        result: {},
-      });
-    }
-
     if (job.technicianId.toString() !== technicianProfileId.toString()) {
       await session.abortTransaction();
       return res.status(403).json({
@@ -293,6 +276,7 @@ export const respondToJob = async (req, res) => {
     }
 
     // First accept wins (atomic): only assign if still broadcasted AND unassigned
+    const now = new Date();
     const booking = await ServiceBooking.findOneAndUpdate(
       { _id: job.bookingId, status: "broadcasted", technicianId: null },
       { technicianId: technicianProfileId, status: "accepted", assignedAt: now },
