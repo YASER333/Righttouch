@@ -111,7 +111,7 @@ const technicianProfileSchema = new mongoose.Schema(
       },
     },
 
-    // 🌍 Display coordinates as strings (format: "11.0254° N", "77.1246° E")
+    // 📍 Display-friendly lat/long strings
     latitude: {
       type: String,
       trim: true,

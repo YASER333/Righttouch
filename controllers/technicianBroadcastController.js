@@ -83,15 +83,9 @@ export const getMyJobs = async (req, res) => {
       });
     }
 
-    const now = new Date();
-
     const jobs = await JobBroadcast.find({
       technicianId: technicianProfileId,
       status: "sent",
-      $or: [
-        { expiresAt: { $gt: now } },
-        { expiresAt: { $exists: false } },
-      ],
     })
       .populate({
         path: "bookingId",
@@ -242,6 +236,8 @@ export const respondToJob = async (req, res) => {
       });
     }
 
+    const now = new Date();
+
     if (job.technicianId.toString() !== technicianProfileId.toString()) {
       await session.abortTransaction();
       return res.status(403).json({
@@ -276,7 +272,6 @@ export const respondToJob = async (req, res) => {
     }
 
     // First accept wins (atomic): only assign if still broadcasted AND unassigned
-    const now = new Date();
     const booking = await ServiceBooking.findOneAndUpdate(
       { _id: job.bookingId, status: "broadcasted", technicianId: null },
       { technicianId: technicianProfileId, status: "accepted", assignedAt: now },
@@ -315,7 +310,7 @@ export const respondToJob = async (req, res) => {
 
     await JobBroadcast.updateMany(
       { bookingId: booking._id, _id: { $ne: job._id } },
-      { $set: { status: "expired", expiresAt: now } },
+      { $set: { status: "expired" } },
       { session }
     );
 

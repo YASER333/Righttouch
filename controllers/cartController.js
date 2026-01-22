@@ -648,7 +648,6 @@ export const checkout = async (req, res) => {
                 technicianId: t._id,
                 status: "sent",
                 sentAt: now,
-                expiresAt: new Date(now.getTime() + 60 * 1000),
               })),
               { ordered: false }
             );

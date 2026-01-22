@@ -1,4 +1,4 @@
-  import bcrypt from "bcryptjs";
+﻿  import bcrypt from "bcryptjs";
   import jwt from "jsonwebtoken";
   import mongoose from "mongoose";
 
@@ -769,31 +769,24 @@
       }
     });
 
-    // Technician geo location (optional) -> stored as GeoJSON Point + strings for display
+    // Technician geo location (optional) -> stored as GeoJSON Point + display strings
     if (role === "Technician" && (updateData.latitude !== undefined || updateData.longitude !== undefined)) {
-      const lat = toFiniteNumber(updateData.latitude);
-      const lng = toFiniteNumber(updateData.longitude);
+      const latString = updateData.latitude;
+      const lngString = updateData.longitude;
 
-      if (lat === null || lng === null) {
-        return fail(res, 400, "latitude and longitude must be valid numbers or formatted strings", "VALIDATION_ERROR", {
-          required: ["latitude", "longitude"],
-        });
+      // Store strings as-is for display
+      updateData.latitude = latString;
+      updateData.longitude = lngString;
+
+      // Also parse and store as GeoJSON for geo queries
+      const lat = toFiniteNumber(latString);
+      const lng = toFiniteNumber(lngString);
+
+      if (lat !== null && lng !== null) {
+        if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          updateData.location = { type: "Point", coordinates: [lng, lat] };
+        }
       }
-
-      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        return fail(res, 400, "Invalid latitude/longitude range", "VALIDATION_ERROR", {
-          latitude: lat,
-          longitude: lng,
-        });
-      }
-
-      // Store GeoJSON for matching
-      updateData.location = { type: "Point", coordinates: [lng, lat] };
-      
-      // Also keep string values from request (they may already be formatted strings like "11.0254° N")
-      // If the user sent numeric values, convert to strings
-      updateData.latitude = String(req.body.latitude || "");
-      updateData.longitude = String(req.body.longitude || "");
     }
 
     updateData.profileComplete = true;
@@ -837,28 +830,24 @@
       if (!forbidden.has(k)) updateData[k] = req.body[k];
     });
 
-    // Technician geo location (optional) -> stored as GeoJSON Point
+    // Technician geo location (optional) -> stored as GeoJSON Point + display strings
     if (role === "Technician" && (updateData.latitude !== undefined || updateData.longitude !== undefined)) {
-      const lat = toFiniteNumber(updateData.latitude);
-      const lng = toFiniteNumber(updateData.longitude);
+      const latString = updateData.latitude;
+      const lngString = updateData.longitude;
 
-      delete updateData.latitude;
-      delete updateData.longitude;
+      // Store strings as-is for display
+      updateData.latitude = latString;
+      updateData.longitude = lngString;
 
-      if (lat === null || lng === null) {
-        return fail(res, 400, "latitude and longitude must be valid numbers", "VALIDATION_ERROR", {
-          required: ["latitude", "longitude"],
-        });
+      // Also parse and store as GeoJSON for geo queries
+      const lat = toFiniteNumber(latString);
+      const lng = toFiniteNumber(lngString);
+
+      if (lat !== null && lng !== null) {
+        if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          updateData.location = { type: "Point", coordinates: [lng, lat] };
+        }
       }
-
-      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        return fail(res, 400, "Invalid latitude/longitude range", "VALIDATION_ERROR", {
-          latitude: lat,
-          longitude: lng,
-        });
-      }
-
-      updateData.location = { type: "Point", coordinates: [lng, lat] };
     }
 
     const updated = await Profile.findByIdAndUpdate(profileId, updateData, {

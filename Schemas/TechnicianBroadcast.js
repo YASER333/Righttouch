@@ -25,7 +25,7 @@ const jobBroadcastSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["sent", "accepted", "rejected"],
+      enum: ["sent", "accepted", "rejected", "expired"],
       default: "sent",
       index: true,
     },
@@ -38,8 +38,5 @@ jobBroadcastSchema.index(
   { bookingId: 1, technicianId: 1 },
   { unique: true }
 );
-
-// ❌ REMOVED: TTL index that was auto-deleting jobs after 60 seconds
-// 🔄 Jobs now remain in broadcast until: acceptance-based removal only
 
 export default mongoose.models.JobBroadcast || mongoose.model("JobBroadcast", jobBroadcastSchema);
