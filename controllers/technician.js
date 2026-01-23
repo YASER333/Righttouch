@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 import TechnicianProfile from "../Schemas/TechnicianProfile.js";
+import ServiceBooking from "../Schemas/ServiceBooking.js";
+import JobBroadcast from "../Schemas/TechnicianBroadcast.js";
 
 const isValidObjectId = mongoose.Types.ObjectId.isValid;
 const TECHNICIAN_STATUSES = ["pending", "trained", "approved", "suspended"];
@@ -264,7 +266,54 @@ export const updateTechnician = async (req, res) => {
         });
       }
 
+      const isGoingOnline = Boolean(availability.isOnline) && !technician.availability.isOnline;
       technician.availability.isOnline = Boolean(availability.isOnline);
+
+      // 🔥 When technician goes online, broadcast existing unassigned jobs
+      if (isGoingOnline && technician.skills.length > 0) {
+        try {
+          const technicianServiceIds = technician.skills
+            .map(s => s.serviceId)
+            .filter(Boolean)
+            .map(id => new mongoose.Types.ObjectId(id));
+
+          if (technicianServiceIds.length > 0) {
+            // Find unassigned bookings matching technician's skills
+            const unassignedBookings = await ServiceBooking.find({
+              serviceId: { $in: technicianServiceIds },
+              technicianId: null, // No technician assigned yet
+              status: "broadcasted",
+            }).select("_id serviceId");
+
+            // Check which bookings this technician hasn't received yet
+            const existingBroadcasts = await JobBroadcast.find({
+              technicianId: id,
+              bookingId: { $in: unassignedBookings.map(b => b._id) },
+            }).select("bookingId");
+
+            const existingBookingIds = new Set(
+              existingBroadcasts.map(b => b.bookingId.toString())
+            );
+
+            // Create broadcasts for new jobs
+            const newBroadcasts = unassignedBookings
+              .filter(booking => !existingBookingIds.has(booking._id.toString()))
+              .map(booking => ({
+                bookingId: booking._id,
+                technicianId: id,
+                status: "sent",
+              }));
+
+            if (newBroadcasts.length > 0) {
+              await JobBroadcast.insertMany(newBroadcasts);
+              console.log(`✅ Broadcasted ${newBroadcasts.length} existing jobs to technician ${id}`);
+            }
+          }
+        } catch (broadcastError) {
+          console.error("⚠️ Error broadcasting existing jobs:", broadcastError.message);
+          // Don't fail the online status update if broadcast fails
+        }
+      }
     }
 
     await technician.save();
@@ -468,6 +517,65 @@ export const updateTechnicianTraining = async (req, res) => {
     });
   } catch (error) {
     console.error("Update training error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      result: {error: error.message},
+    });
+  }
+};
+/* ================= UPLOAD TECHNICIAN PROFILE IMAGE ================= */
+export const uploadProfileImage = async (req, res) => {
+  try {
+    const technicianProfileId = req.user?.profileId;
+
+    if (!technicianProfileId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+        result: {},
+      });
+    }
+
+    if (req.user?.role !== "Technician") {
+      return res.status(403).json({
+        success: false,
+        message: "Only technicians can upload profile image",
+        result: {},
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided",
+        result: {},
+      });
+    }
+
+    const technician = await TechnicianProfile.findByIdAndUpdate(
+      technicianProfileId,
+      { profileImage: req.file.path },
+      { new: true, runValidators: true }
+    ).select("-password");
+
+    if (!technician) {
+      return res.status(404).json({
+        success: false,
+        message: "Technician profile not found",
+        result: {},
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile image uploaded successfully",
+      result: {
+        profileImage: technician.profileImage,
+      },
+    });
+  } catch (error) {
+    console.error("Upload profile image error:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",

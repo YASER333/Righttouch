@@ -9,6 +9,8 @@
   import AdminProfile from "../Schemas/AdminProfile.js";
   import TechnicianProfile from "../Schemas/TechnicianProfile.js";
   import CustomerProfile from "../Schemas/CustomerProfile.js";
+  import TechnicianKyc from "../Schemas/TechnicianKYC.js";
+  import crypto from "crypto";
 
   import sendSms from "../utils/sendSMS.js";
 
@@ -697,7 +699,19 @@
     }
 
     const profile = await Profile.findById(profileId).select("-password");
-    return ok(res, 200, "Profile fetched successfully", profile || {});
+    const result = profile ? profile.toObject() : {};
+
+    // For Technician, also fetch bank details from TechnicianKyc
+    if (role === "Technician" && profileId) {
+      const kyc = await TechnicianKyc.findOne({ technicianId: profileId }).select("bankDetails bankVerified bankUpdateRequired");
+      if (kyc && kyc.bankDetails) {
+        result.bankDetails = kyc.bankDetails;
+        result.bankVerified = kyc.bankVerified || false;
+        result.bankUpdateRequired = kyc.bankUpdateRequired || false;
+      }
+    }
+
+    return ok(res, 200, "Profile fetched successfully", result || {});
   };
 
   export const completeProfile = async (req, res) => {
@@ -829,6 +843,90 @@
     Object.keys(req.body || {}).forEach((k) => {
       if (!forbidden.has(k)) updateData[k] = req.body[k];
     });
+
+    // Technician can update bank details here (stored in TechnicianKyc)
+    if (role === "Technician" && req.body?.bankDetails) {
+      const technicianProfileId = profileId;
+      const bankDetails = req.body.bankDetails || {};
+
+      // Fetch existing KYC or create placeholder
+      let kyc = await TechnicianKyc.findOne({ technicianId: technicianProfileId });
+      if (!kyc) {
+        kyc = new TechnicianKyc({ technicianId: technicianProfileId });
+      }
+
+      // Block editing if already verified and no update requested
+      if (kyc.bankVerified && !kyc.bankUpdateRequired) {
+        return fail(res, 403, "Bank details are verified and cannot be edited", "BANK_EDIT_BLOCKED");
+      }
+
+      // Validate
+      const errors = [];
+      if (bankDetails.accountHolderName && !/^[a-zA-Z\s]{3,}$/.test(bankDetails.accountHolderName)) {
+        errors.push("Account holder name must be 3+ characters, alphabets and spaces only");
+      }
+      if (bankDetails.bankName && !/^[a-zA-Z\s]{3,}$/.test(bankDetails.bankName)) {
+        errors.push("Bank name must be 3+ characters, alphabets and spaces only");
+      }
+      if (bankDetails.accountNumber && !/^\d{9,18}$/.test(bankDetails.accountNumber)) {
+        errors.push("Account number must be 9-18 digits only");
+      }
+      if (bankDetails.ifscCode && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(String(bankDetails.ifscCode).toUpperCase())) {
+        errors.push("Invalid IFSC code format");
+      }
+      if (bankDetails.branchName && String(bankDetails.branchName).trim().length < 3) {
+        errors.push("Branch name must be at least 3 characters");
+      }
+      if (bankDetails.upiId && !/^[a-zA-Z0-9._-]{2,}@[a-zA-Z]{2,}$/.test(bankDetails.upiId)) {
+        errors.push("Invalid UPI ID format");
+      }
+      if (errors.length) {
+        return fail(res, 400, "Invalid bank details", "VALIDATION_ERROR", { errors });
+      }
+
+      // Duplicate account check via hash
+      if (bankDetails.accountNumber) {
+        const accountNumberHash = crypto
+          .createHash("sha256")
+          .update(String(bankDetails.accountNumber))
+          .digest("hex");
+
+        const dup = await TechnicianKyc.findOne({
+          "bankDetails.accountNumberHash": accountNumberHash,
+          technicianId: { $ne: technicianProfileId },
+        });
+        if (dup) {
+          return fail(res, 400, "Account number already registered with another technician", "DUPLICATE_ACCOUNT");
+        }
+      }
+
+      // Normalize
+      const processed = {
+        accountHolderName: bankDetails.accountHolderName
+          ? String(bankDetails.accountHolderName)
+              .toLowerCase()
+              .split(" ")
+              .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ""))
+              .join(" ")
+          : bankDetails.accountHolderName,
+        bankName: bankDetails.bankName ? String(bankDetails.bankName).trim() : bankDetails.bankName,
+        accountNumber: bankDetails.accountNumber ? String(bankDetails.accountNumber).trim() : bankDetails.accountNumber,
+        accountNumberHash: bankDetails.accountNumber
+          ? crypto.createHash("sha256").update(String(bankDetails.accountNumber).trim()).digest("hex")
+          : kyc.bankDetails?.accountNumberHash,
+        ifscCode: bankDetails.ifscCode ? String(bankDetails.ifscCode).toUpperCase().trim() : bankDetails.ifscCode,
+        branchName: bankDetails.branchName ? String(bankDetails.branchName).trim() : bankDetails.branchName,
+        upiId: bankDetails.upiId ? String(bankDetails.upiId).toLowerCase().trim() : bankDetails.upiId,
+      };
+
+      kyc.bankDetails = { ...(kyc.bankDetails || {}), ...processed };
+      // Reset verification and allow edits until verified again
+      kyc.bankVerified = false;
+      kyc.bankUpdateRequired = false;
+      kyc.bankVerificationStatus = "pending";
+      kyc.bankEditableUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      await kyc.save();
+    }
 
     // Technician geo location (optional) -> stored as GeoJSON Point + display strings
     if (role === "Technician" && (updateData.latitude !== undefined || updateData.longitude !== undefined)) {
