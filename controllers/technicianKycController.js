@@ -562,7 +562,7 @@ export const verifyBankDetails = async (req, res) => {
       });
     }
 
-    const kyc = await TechnicianKyc.findOne({ technicianId });
+    const kyc = await TechnicianKyc.findOne({ technicianId }).select('+bankDetails.accountNumber');
     if (!kyc) {
       return res.status(404).json({
         success: false,
