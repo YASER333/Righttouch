@@ -53,7 +53,7 @@ router.post("/technicianData", Auth, createTechnician);
 router.get("/technicianAll", Auth, getAllTechnicians);
 router.get("/technicianById/:id", Auth, getTechnicianById);
 router.get("/technician/me", Auth, getMyTechnician);
-router.put("/updateTechnician/:id", Auth, updateTechnician);
+router.put("/updateTechnician", Auth, updateTechnician);
 router.put("/technician/status", Auth, updateTechnicianStatus);
 router.put("/:technicianId/training", Auth, updateTechnicianTraining);
 router.post("/technician/profile-image", Auth, isTechnician, upload.single("profileImage"), uploadProfileImage);

@@ -197,13 +197,13 @@ export const getMyTechnician = async (req, res) => {
 /* ================= UPDATE TECHNICIAN ================= */
 export const updateTechnician = async (req, res) => {
   try {
-    const { id } = req.params;
     const { skills, availability } = req.body;
+    const technicianProfileId = req.user?.profileId;
 
-    if (!isValidObjectId(id)) {
-      return res.status(400).json({
+    if (!technicianProfileId || !isValidObjectId(technicianProfileId)) {
+      return res.status(401).json({
         success: false,
-        message: "Invalid Technician ID",
+        message: "Unauthorized",
         result: {},
       });
     }
@@ -216,20 +216,12 @@ export const updateTechnician = async (req, res) => {
       });
     }
 
-    const technician = await TechnicianProfile.findById(id);
+    const technician = await TechnicianProfile.findById(technicianProfileId);
     if (!technician) {
       return res.status(404).json({
         success: false,
         message: "Technician not found",
         result: {},
-      });
-    }
-
-    const technicianProfileId = req.user?.profileId;
-    if (!technicianProfileId || technician._id.toString() !== technicianProfileId.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied",
       });
     }
 
@@ -257,7 +249,7 @@ export const updateTechnician = async (req, res) => {
       }
 
       // Check if KYC is approved
-      const kyc = await mongoose.model('TechnicianKyc').findOne({ technicianId: id });
+      const kyc = await mongoose.model('TechnicianKyc').findOne({ technicianId: technicianProfileId });
       if (!kyc || kyc.verificationStatus !== "approved") {
         return res.status(403).json({
           success: false,
@@ -287,7 +279,7 @@ export const updateTechnician = async (req, res) => {
 
             // Check which bookings this technician hasn't received yet
             const existingBroadcasts = await JobBroadcast.find({
-              technicianId: id,
+              technicianId: technicianProfileId,
               bookingId: { $in: unassignedBookings.map(b => b._id) },
             }).select("bookingId");
 
@@ -300,13 +292,13 @@ export const updateTechnician = async (req, res) => {
               .filter(booking => !existingBookingIds.has(booking._id.toString()))
               .map(booking => ({
                 bookingId: booking._id,
-                technicianId: id,
+                technicianId: technicianProfileId,
                 status: "sent",
               }));
 
             if (newBroadcasts.length > 0) {
               await JobBroadcast.insertMany(newBroadcasts);
-              console.log(`✅ Broadcasted ${newBroadcasts.length} existing jobs to technician ${id}`);
+              console.log(`✅ Broadcasted ${newBroadcasts.length} existing jobs to technician ${technicianProfileId}`);
             }
           }
         } catch (broadcastError) {

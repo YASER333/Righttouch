@@ -315,7 +315,9 @@ export const getAllTechnicianKyc = async (req, res) => {
     // Some legacy/bad records may have `technicianId` missing/null OR referencing a deleted TechnicianProfile.
     // If we only use populate(), those become `technicianId: null` and it's impossible to debug in the client.
     // So we fetch lean docs, then attach a populated technician object when possible + expose technicianIdRaw.
-    const kycDocs = await TechnicianKyc.find().lean();
+    const kycDocs = await TechnicianKyc.find()
+      .select('+bankDetails.accountNumber +bankDetails.accountNumberHash')
+      .lean();
 
     const technicianIds = Array.from(
       new Set(

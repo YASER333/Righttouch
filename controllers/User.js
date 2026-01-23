@@ -294,58 +294,8 @@
         return fail(res, 500, "Failed to verify user status", "TEMPUSER_STATUS_UPDATE_FAILED");
       }
 
-    if (!tempUser) {
-      return fail(
-        res,
-        403,
-        "OTP not verified. Please complete OTP verification first.",
-        "OTP_NOT_VERIFIED"
-      );
-    }
-
-    // Check if user already exists
-    const mobileExists = await findAnyProfileByMobileNumber(identifier);
-    if (mobileExists) {
-      return fail(res, 409, "User with this mobile number already exists", "MOBILE_ALREADY_EXISTS");
-    }
-
-    // Create profile
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const Profile = roleModelMap[normalizedRole];
-    const userId = new mongoose.Types.ObjectId();
-
-    // Different roles use different status field names
-    const profileData = {
-      userId,
-      mobileNumber: identifier,
-      password: hashedPassword,
-      profileComplete: false,
-    };
-
-    // Technician uses 'workStatus', others use 'status'
-    if (normalizedRole === "Technician") {
-      profileData.workStatus = "pending";
-      // Prevent geo index error: don't create location object without coordinates
-      profileData.location = undefined;
-    } else {
-      profileData.status = "Active";
-    }
-
-    const profile = await Profile.create(profileData);
-
-    if (!profile) {
-      return fail(res, 500, "Failed to create user account", "PROFILE_CREATE_FAILED");
-    }
-
-    // Cleanup temp data
-    await TempUser.deleteOne({ _id: tempUser._id });
-    await Otp.deleteMany({ identifier, role: normalizedRole });
-
-    // Generate token
-    const token = jwt.sign(
-      {
-        userId: profile.userId,
-        profileId: profile._id,
+      return ok(res, 200, "OTP verified successfully", {
+        mobileNumber: identifier,
         role: normalizedRole,
         nextStep: "set-password",
       });
