@@ -89,9 +89,65 @@ const serviceBookingSchema = new mongoose.Schema(
       index: true,
     },
 
+    paymentProvider: {
+      type: String,
+      enum: ["razorpay"],
+      default: "razorpay",
+    },
+
+    paymentOrderId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
+    paymentProviderPaymentId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
+    paidAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    commissionPercentage: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+
+    commissionAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    technicianAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
     paymentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Payment",
+    },
+
+    // ✅ Settlement to technician wallet (idempotent)
+    settlementStatus: {
+      type: String,
+      enum: ["pending", "eligible", "settled"],
+      default: "pending",
+      index: true,
+    },
+
+    settledAt: {
+      type: Date,
+      default: null,
     },
 
     // 📌 STATUS FLOW
@@ -115,6 +171,12 @@ const serviceBookingSchema = new mongoose.Schema(
       type: Date,
       default: null,
       index: true,
+    },
+
+    // Optional GeoJSON point for nearby matching
+    location: {
+      type: geoPointSchema,
+      default: null,
     },
   },
   { timestamps: true }

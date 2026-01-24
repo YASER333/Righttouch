@@ -41,6 +41,19 @@ const ensureCustomer = (req) => {
   }
 };
 
+const toFiniteNumber = (v) => {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string" && v.trim() === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const normalizeAddressId = (v) => {
+  if (typeof v !== "string") return v || null;
+  const trimmed = v.trim();
+  return trimmed ? trimmed : null;
+};
+
 /* ================= ADD TO CART ================= */
 export const addToCart = async (req, res) => {
   try {
@@ -398,24 +411,42 @@ export const checkout = async (req, res) => {
         result: {},
       });
     }
-    const { addressId, paymentMode, scheduledAt } = req.body;
+    const addressId = normalizeAddressId(req.body?.addressId);
+    const paymentMode = req.body?.paymentMode;
+    const scheduledAt = req.body?.scheduledAt;
+
+    const addressLineInput = typeof req.body?.addressLine === "string" ? req.body.addressLine.trim() : "";
+    const cityInput = typeof req.body?.city === "string" ? req.body.city.trim() : undefined;
+    const stateInput = typeof req.body?.state === "string" ? req.body.state.trim() : undefined;
+    const pincodeInput = typeof req.body?.pincode === "string" ? req.body.pincode.trim() : undefined;
+
+    // Support both top-level lat/lng and nested location { latitude, longitude }
+    const latInput =
+      req.body?.latitude !== undefined
+        ? toFiniteNumber(req.body.latitude)
+        : toFiniteNumber(req.body?.location?.latitude);
+    const lngInput =
+      req.body?.longitude !== undefined
+        ? toFiniteNumber(req.body.longitude)
+        : toFiniteNumber(req.body?.location?.longitude);
 
     // Validate required fields
-    if (!addressId || !paymentMode) {
+    if (!paymentMode) {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        message: "Address ID and payment mode are required",
+        message: "paymentMode is required",
         result: {},
       });
     }
 
-    // 🔒 Validate ObjectId
-    if (!mongoose.Types.ObjectId.isValid(addressId)) {
+    const hasCoords = latInput !== null && lngInput !== null;
+    const hasAnyAddressInput = Boolean(addressId) || Boolean(addressLineInput) || hasCoords;
+    if (!hasAnyAddressInput) {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        message: "Invalid address ID format",
+        message: "Provide either addressId or addressLine or latitude/longitude",
         result: {},
       });
     }
@@ -430,16 +461,84 @@ export const checkout = async (req, res) => {
       });
     }
 
-    // Get address - verify it belongs to this user
-    const address = await Address.findOne({ _id: addressId, customerProfileId }).session(session);
+    // Resolve address snapshot (from saved Address or from direct input)
+    let address = null;
+    let addressSnapshot = null;
 
-    if (!address) {
-      await session.abortTransaction();
-      return res.status(404).json({
-        success: false,
-        message: "Address not found or does not belong to you",
-        result: {},
-      });
+    if (addressId) {
+      // 🔒 Validate ObjectId
+      if (!mongoose.Types.ObjectId.isValid(addressId)) {
+        await session.abortTransaction();
+        return res.status(400).json({
+          success: false,
+          message: "Invalid addressId format",
+          result: {},
+        });
+      }
+
+      address = await Address.findOne({ _id: addressId, customerProfileId }).session(session);
+      if (!address) {
+        await session.abortTransaction();
+        return res.status(404).json({
+          success: false,
+          message: "Address not found or does not belong to you",
+          result: {},
+        });
+      }
+
+      addressSnapshot = {
+        _id: address._id,
+        name: address.name,
+        phone: address.phone,
+        addressLine: address.addressLine,
+        city: address.city,
+        state: address.state,
+        pincode: address.pincode,
+        latitude: address.latitude,
+        longitude: address.longitude,
+      };
+    } else {
+      const derivedName = [customerProfile.firstName, customerProfile.lastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+
+      const derivedPhone = customerProfile.mobileNumber;
+
+      const finalAddressLine = addressLineInput || "Pinned Location";
+
+      if (!derivedName || !derivedPhone) {
+        await session.abortTransaction();
+        return res.status(400).json({
+          success: false,
+          message: "Please complete your profile (firstName, mobileNumber) before checkout",
+          result: {},
+        });
+      }
+
+      // Basic range validation when coordinates are provided
+      if (hasCoords) {
+        if (latInput < -90 || latInput > 90 || lngInput < -180 || lngInput > 180) {
+          await session.abortTransaction();
+          return res.status(400).json({
+            success: false,
+            message: "Invalid latitude/longitude range",
+            result: { latitude: latInput, longitude: lngInput },
+          });
+        }
+      }
+
+      addressSnapshot = {
+        _id: null,
+        name: derivedName,
+        phone: derivedPhone,
+        addressLine: finalAddressLine,
+        city: cityInput,
+        state: stateInput,
+        pincode: pincodeInput,
+        latitude: hasCoords ? latInput : undefined,
+        longitude: hasCoords ? lngInput : undefined,
+      };
     }
 
     // Get all cart items for the user
@@ -500,13 +599,15 @@ export const checkout = async (req, res) => {
 
     const bookingResults = {
       address: {
-        _id: address._id,
-        name: address.name,
-        phone: address.phone,
-        addressLine: address.addressLine,
-        city: address.city,
-        state: address.state,
-        pincode: address.pincode,
+        _id: addressSnapshot._id,
+        name: addressSnapshot.name,
+        phone: addressSnapshot.phone,
+        addressLine: addressSnapshot.addressLine,
+        city: addressSnapshot.city,
+        state: addressSnapshot.state,
+        pincode: addressSnapshot.pincode,
+        latitude: addressSnapshot.latitude,
+        longitude: addressSnapshot.longitude,
       },
       serviceBookings: [],
       productBookings: [],
@@ -523,26 +624,26 @@ export const checkout = async (req, res) => {
       // Calculate amount
       const baseAmount = service.serviceCost * cartItem.quantity;
 
-      const hasCoords =
-        typeof address?.latitude === "number" &&
-        Number.isFinite(address.latitude) &&
-        typeof address?.longitude === "number" &&
-        Number.isFinite(address.longitude);
+      const hasCoordsForBooking =
+        typeof addressSnapshot?.latitude === "number" &&
+        Number.isFinite(addressSnapshot.latitude) &&
+        typeof addressSnapshot?.longitude === "number" &&
+        Number.isFinite(addressSnapshot.longitude);
 
       const serviceBookingDoc = {
         customerProfileId,
         serviceId: cartItem.itemId,
         baseAmount,
-        address: address.addressLine,
-        addressId: address._id,
+        address: addressSnapshot.addressLine,
+        addressId: addressSnapshot._id,
         scheduledAt: scheduledAt || new Date(),
         status: "requested", // phase 1: booking created, broadcast happens post-commit
       };
 
-      if (hasCoords) {
+      if (hasCoordsForBooking) {
         serviceBookingDoc.location = {
           type: "Point",
-          coordinates: [address.longitude, address.latitude],
+          coordinates: [addressSnapshot.longitude, addressSnapshot.latitude],
         };
       }
 
@@ -556,12 +657,12 @@ export const checkout = async (req, res) => {
         baseAmount,
         scheduledAt: scheduledAt || new Date(),
         addressSnapshot: {
-          addressLine: address.addressLine,
-          city: address.city,
-          state: address.state,
-          pincode: address.pincode,
-          latitude: address.latitude,
-          longitude: address.longitude,
+          addressLine: addressSnapshot.addressLine,
+          city: addressSnapshot.city,
+          state: addressSnapshot.state,
+          pincode: addressSnapshot.pincode,
+          latitude: addressSnapshot.latitude,
+          longitude: addressSnapshot.longitude,
         },
       });
 
@@ -621,6 +722,21 @@ export const checkout = async (req, res) => {
     setImmediate(async () => {
       try {
         for (const task of serviceBroadcastTasks) {
+          // Skip broadcasting if booking already got assigned/cancelled in the meantime.
+          // We allow both "requested" and already-"broadcasted" bookings here to make retries safe.
+          const bookingStillOpen = await ServiceBooking.find7One(
+            {
+              _id: task.bookingId,
+              status: { $in: ["requested", "broadcasted"] },
+              technicianId: null,
+            },
+            { _id: 1 }
+          );
+
+          if (!bookingStillOpen) {
+            continue;
+          }
+
           const technicians = await findEligibleTechniciansForService({
             serviceId: task.serviceId,
             address: {
@@ -638,6 +754,13 @@ export const checkout = async (req, res) => {
           if (!technicians || technicians.length === 0) {
             continue;
           }
+
+          // Mark booking broadcasted only if it hasn't been assigned yet.
+          // Do this BEFORE inserting broadcasts so technicians fetching quickly can still populate.
+          await ServiceBooking.updateOne(
+            { _id: task.bookingId, status: { $in: ["requested", "broadcasted"] }, technicianId: null },
+            { $set: { status: "broadcasted" } }
+          );
 
           const now = new Date();
 
@@ -657,12 +780,6 @@ export const checkout = async (req, res) => {
               throw e;
             }
           }
-
-          // Mark booking broadcasted only if it hasn't been assigned yet
-          await ServiceBooking.updateOne(
-            { _id: task.bookingId, status: "requested", technicianId: null },
-            { $set: { status: "broadcasted" } }
-          );
 
           await broadcastJobToTechnicians(req.io, technicians.map((t) => t._id.toString()), {
             bookingId: task.bookingId,

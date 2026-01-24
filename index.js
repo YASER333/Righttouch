@@ -69,9 +69,15 @@ App.use((req, res, next) => {
   next();
 });
 
-App.use(express.json());
 App.use(cors());
-App.use(bodyParser.json());
+// ✅ Single JSON parser with rawBody capture (needed for payment webhooks)
+App.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf?.toString("utf8");
+    },
+  })
+);
 App.use(bodyParser.urlencoded({ extended: true }));
 App.use(express.static("public"));
 

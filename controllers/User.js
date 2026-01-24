@@ -73,6 +73,17 @@
     return false;
   };
 
+  const applyRolePopulates = (query, role) => {
+    if (role === "Technician") {
+      return query.populate({
+        path: "skills.serviceId",
+        select: "serviceName serviceCost discountedPrice commissionPercentage commissionAmount technicianAmount categoryId",
+        populate: { path: "categoryId", select: "category" },
+      });
+    }
+    return query;
+  };
+
   /* ======================================================
     1️⃣ SIGNUP + SEND OTP (SMS ONLY)
   ====================================================== */
@@ -369,13 +380,21 @@
       const Profile = roleModelMap[normalizedRole];
       const userId = new mongoose.Types.ObjectId();
 
-      const profile = await Profile.create({
+      const profileData = {
         userId,
         mobileNumber: identifier,
         password: hashedPassword,
-        status: "Active",
         profileComplete: false,
-      });
+      };
+
+      // Technician uses 'workStatus', others typically use 'status'
+      if (normalizedRole === "Technician") {
+        profileData.workStatus = "pending";
+      } else {
+        profileData.status = "Active";
+      }
+
+      const profile = await Profile.create(profileData);
 
       if (!profile) {
         return fail(res, 500, "Failed to create user account", "PROFILE_CREATE_FAILED");
@@ -452,20 +471,23 @@
         process.env.JWT_SECRET
       );
 
+      // Return populated profile data (safe fields only)
+      const profileQuery = Profile.findById(user._id).select("-password");
+      const profile = await applyRolePopulates(profileQuery, normalizedRole);
+
       // Keep backward compatibility: top-level token exists, AND result.token exists
       return res.status(200).json({
         success: true,
         message: "Login successful",
         token,
         role: normalizedRole,
-        profileComplete: user.profileComplete,
         result: {
-          token,
           role: normalizedRole,
           profileId: user._id,
           userId: user.userId || user._id,
           mobileNumber: user.mobileNumber,
           profileComplete: user.profileComplete,
+          profile: profile || {},
         },
       });
     } catch (err) {
@@ -908,16 +930,25 @@
 
   export const getUserById = async (req, res) => {
     const { role, id } = req.params;
-    const Profile = roleModelMap[role];
+    const normalizedRole = normalizeRole(role);
+    const Profile = normalizedRole ? roleModelMap[normalizedRole] : null;
 
-    const user = await Profile.findById(id).select("-password");
+    if (!Profile) return fail(res, 400, "Invalid role", "INVALID_ROLE");
+    if (!mongoose.Types.ObjectId.isValid(id)) return fail(res, 400, "Invalid id", "VALIDATION_ERROR");
+
+    const query = Profile.findById(id).select("-password");
+    const user = await applyRolePopulates(query, normalizedRole);
     return ok(res, 200, "User fetched successfully", user || {});
   };
 
   export const getAllUsers = async (req, res) => {
     const { role } = req.params;
-    const Profile = roleModelMap[role];
+    const normalizedRole = normalizeRole(role);
+    const Profile = normalizedRole ? roleModelMap[normalizedRole] : null;
 
-    const users = await Profile.find().select("-password");
+    if (!Profile) return fail(res, 400, "Invalid role", "INVALID_ROLE");
+
+    const query = Profile.find().select("-password");
+    const users = await applyRolePopulates(query, normalizedRole);
     return ok(res, 200, "Users fetched successfully", users || []);
   };

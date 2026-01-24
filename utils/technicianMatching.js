@@ -28,10 +28,13 @@ export const findEligibleTechniciansForService = async ({
   }
 
   const serviceObjectId = new mongoose.Types.ObjectId(serviceId);
+  const serviceIdString = String(serviceId);
 
-  const approvedKyc = await TechnicianKyc.find({ verificationStatus: "approved" })
-    .select("technicianId")
-    .session(session || null);
+  let approvedKycQuery = TechnicianKyc.find({ verificationStatus: "approved" }).select(
+    "technicianId"
+  );
+  if (session) approvedKycQuery = approvedKycQuery.session(session);
+  const approvedKyc = await approvedKycQuery;
 
   const approvedTechnicianIds = approvedKyc
     .map((d) => d.technicianId)
@@ -45,9 +48,16 @@ export const findEligibleTechniciansForService = async ({
     _id: { $in: approvedTechnicianIds },
     workStatus: "approved",
     profileComplete: true,
-    trainingCompleted: true, // 🔒 Only trained technicians receive broadcasts
     "availability.isOnline": true,
-    "skills.serviceId": serviceObjectId,
+    $or: [
+      // canonical shape: skills: [{ serviceId: ObjectId }]
+      { "skills.serviceId": serviceObjectId },
+      // legacy/dirty data: string stored instead of ObjectId
+      { "skills.serviceId": serviceIdString },
+      // extra tolerance (in case skills stored as raw array of ids)
+      { skills: serviceObjectId },
+      { skills: serviceIdString },
+    ],
   };
 
   const lat = Number(address?.latitude);
@@ -63,23 +73,31 @@ export const findEligibleTechniciansForService = async ({
 
   // 1) Prefer geo query when possible (requires technicians to have `location`)
   if (enableGeo && hasCoords) {
+    // Only match technicians who actually have a valid GeoJSON Point.
+    // Many profiles may have latitude/longitude strings but no GeoJSON `location`.
     const geoQuery = {
       ...baseQuery,
-      location: {
-        $nearSphere: {
-          $geometry: {
-            type: "Point",
-            coordinates: [lng, lat],
+      $and: [
+        { "location.type": "Point" },
+        { "location.coordinates.0": { $type: "number" } },
+        { "location.coordinates.1": { $type: "number" } },
+        {
+          location: {
+            $nearSphere: {
+              $geometry: {
+                type: "Point",
+                coordinates: [lng, lat],
+              },
+              $maxDistance: radiusMeters,
+            },
           },
-          $maxDistance: radiusMeters,
         },
-      },
+      ],
     };
 
-    const nearby = await TechnicianProfile.find(geoQuery)
-      .select("_id")
-      .limit(limit)
-      .session(session || null);
+    let nearbyQuery = TechnicianProfile.find(geoQuery).select("_id").limit(limit);
+    if (session) nearbyQuery = nearbyQuery.session(session);
+    const nearby = await nearbyQuery;
 
     if (nearby.length > 0) return nearby;
   }
@@ -95,8 +113,9 @@ export const findEligibleTechniciansForService = async ({
     fallbackQuery.state = new RegExp(`^${escapeRegExp(String(address.state).trim())}$`, "i");
   }
 
-  return TechnicianProfile.find(fallbackQuery)
+  let fallbackFindQuery = TechnicianProfile.find(fallbackQuery)
     .select("_id")
-    .limit(limit)
-    .session(session || null);
+    .limit(limit);
+  if (session) fallbackFindQuery = fallbackFindQuery.session(session);
+  return fallbackFindQuery;
 };

@@ -81,6 +81,9 @@ import {
 
 import {
   createPayment,
+  createPaymentOrder,
+  verifyPayment,
+  razorpayWebhook,
   updatePaymentStatus,
 } from "../controllers/paymentController.js";
 
@@ -124,7 +127,7 @@ const authLimiter = rateLimit({
 
 const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 3, // 3 OTP requests per window
+  // max: 3, // 3 OTP requests per window
   message: {
     success: false,
     message: "Too many OTP requests, please try again after 15 minutes",
@@ -260,6 +263,16 @@ router.put("/productBookingCancel/:id", Auth, productBookingCancel);
 
 // Create online payment (Customer)
 router.post("/payment", Auth, createPayment);
+
+// ✅ New: Create gateway order (Customer)
+router.post("/payment/order", Auth, createPaymentOrder);
+
+// ✅ New: Verify signature (Customer)
+router.post("/payment/verify", Auth, verifyPayment);
+
+// ✅ New: Webhook (no Auth) - requires raw body capture in index.js
+router.post("/payment/webhook/razorpay", razorpayWebhook);
+
 // Update payment status (System/Admin/Webhook)
 router.put("/payment/:id/status", Auth, updatePaymentStatus);
 

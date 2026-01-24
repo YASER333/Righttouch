@@ -16,8 +16,8 @@ const router = express.Router();
 /* ================= ADDRESS ROUTES ================= */
 
 /* ================= ADMIN ONLY ================= */
-router.get("/admin/all", authorizeRoles("Admin", "Owner"), adminGetAllAddresses);
-router.get("/admin/:id", authorizeRoles("Admin", "Owner"), adminGetAddressById);
+router.get("/admin/all", Auth, authorizeRoles("Admin", "Owner"), adminGetAllAddresses);
+router.get("/admin/:id", Auth, authorizeRoles("Admin", "Owner"), adminGetAddressById);
 
 // Create address
 router.post("/", Auth, createAddress);

@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import crypto from "crypto";
 import TechnicianKyc from "../Schemas/TechnicianKYC.js";
 import TechnicianProfile from "../Schemas/TechnicianProfile.js";
+import { getTechnicianJobEligibility } from "../utils/technicianEligibility.js";
 
 const isValidObjectId = mongoose.Types.ObjectId.isValid;
 
@@ -330,7 +331,7 @@ export const getAllTechnicianKyc = async (req, res) => {
 
     const technicians = technicianIds.length
       ? await TechnicianProfile.find({ _id: { $in: technicianIds } })
-          .select("userId skills workStatus profileComplete availability")
+          .select("userId firstName lastName skills workStatus profileComplete availability")
           .lean()
       : [];
 
@@ -447,10 +448,15 @@ export const getMyTechnicianKyc = async (req, res) => {
       });
     }
 
+    const eligibility = await getTechnicianJobEligibility({ technicianProfileId });
+
     return res.status(200).json({
       success: true,
       message: "KYC fetched successfully",
-      result: kyc,
+      result: {
+        ...kyc.toObject(),
+        eligibility,
+      },
     });
   } catch (error) {
     return res.status(500).json({
@@ -544,7 +550,7 @@ export const verifyTechnicianKyc = async (req, res) => {
 /* ================= ADMIN VERIFY / REJECT BANK DETAILS ================= */
 export const verifyBankDetails = async (req, res) => {
   try {
-    const { technicianId, verified } = req.body;
+    const { technicianId, verified, bankRejectionReason } = req.body;
 
     if (!isOwnerOrAdmin(req)) {
       return res.status(403).json({
@@ -558,6 +564,15 @@ export const verifyBankDetails = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Technician ID and 'verified' boolean are required",
+        result: {},
+      });
+    }
+
+    // If rejecting (verified: false) and bankRejectionReason provided, validate it
+    if (!verified && bankRejectionReason && String(bankRejectionReason).trim().length < 5) {
+      return res.status(400).json({
+        success: false,
+        message: "Rejection reason must be at least 5 characters",
         result: {},
       });
     }
@@ -606,17 +621,23 @@ export const verifyBankDetails = async (req, res) => {
       kyc.bankVerifiedBy = req.user.userId;
       kyc.bankVerificationStatus = "approved";
       kyc.bankEditableUntil = null; // lock edits
+      kyc.bankRejectionReason = null; // clear any previous reason
     } else {
       kyc.bankVerified = false;
       kyc.bankUpdateRequired = true;
       kyc.bankVerificationStatus = "pending";
+      // Set rejection reason if provided
+      if (bankRejectionReason) {
+        kyc.bankRejectionReason = String(bankRejectionReason).trim();
+      }
       // keep editable; optionally extend window
       if (!kyc.bankEditableUntil || kyc.bankEditableUntil < new Date()) {
         kyc.bankEditableUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       }
     }
 
-    await kyc.save();
+    // Skip validation since we're only updating flags, not the encrypted bank details
+    await kyc.save({ validateModifiedOnly: true });
 
     if (verified) {
       return res.status(200).json({
@@ -629,7 +650,11 @@ export const verifyBankDetails = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Bank details update requested from technician",
-      data: { bankVerified: false, bankUpdateRequired: true },
+      data: { 
+        bankVerified: false, 
+        bankUpdateRequired: true,
+        bankRejectionReason: kyc.bankRejectionReason || null
+      },
     });
   } catch (error) {
     return res.status(500).json({

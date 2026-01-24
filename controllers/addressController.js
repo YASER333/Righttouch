@@ -231,7 +231,22 @@ export const updateAddress = async (req, res) => {
       );
     }
 
-    Object.assign(address, req.body);
+    // Only allow safe updates
+    const allowed = [
+      "label",
+      "addressLine",
+      "city",
+      "state",
+      "pincode",
+      "latitude",
+      "longitude",
+      "isDefault",
+    ];
+
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) address[key] = req.body[key];
+    }
+
     await address.save();
 
     res.json({ success: true, result: address });

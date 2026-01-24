@@ -6,10 +6,18 @@ import Address from "../Schemas/Address.js";
 import mongoose from "mongoose";
 import { broadcastJobToTechnicians } from "../utils/sendNotification.js";
 import { findEligibleTechniciansForService } from "../utils/technicianMatching.js";
+import { settleBookingEarningsIfEligible } from "../utils/settlement.js";
 
 const toNumber = value => {
   const num = Number(value);
   return Number.isNaN(num) ? NaN : num;
+};
+
+const toFiniteNumber = (v) => {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string" && v.trim() === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 };
 
 
@@ -26,9 +34,26 @@ export const createBooking = async (req, res) => {
     }
     const customerProfileId = req.user.profileId;
 
-    const { serviceId, baseAmount, address, addressId, scheduledAt } = req.body;
+    const { serviceId, baseAmount, address, scheduledAt } = req.body;
+    const addressId = typeof req.body?.addressId === "string" ? req.body.addressId.trim() : req.body?.addressId;
 
-    if (!serviceId || baseAmount == null || (!address && !addressId)) {
+    const addressLineInput = typeof req.body?.addressLine === "string" ? req.body.addressLine.trim() : "";
+    const cityInput = typeof req.body?.city === "string" ? req.body.city.trim() : undefined;
+    const stateInput = typeof req.body?.state === "string" ? req.body.state.trim() : undefined;
+    const pincodeInput = typeof req.body?.pincode === "string" ? req.body.pincode.trim() : undefined;
+
+    const latInput =
+      req.body?.latitude !== undefined
+        ? toFiniteNumber(req.body.latitude)
+        : toFiniteNumber(req.body?.location?.latitude);
+    const lngInput =
+      req.body?.longitude !== undefined
+        ? toFiniteNumber(req.body.longitude)
+        : toFiniteNumber(req.body?.location?.longitude);
+
+    const hasCoords = latInput !== null && lngInput !== null;
+
+    if (!serviceId || baseAmount == null || (!address && !addressId && !addressLineInput && !hasCoords)) {
       return res.status(400).json({
         success: false,
         message: "All fields required",
@@ -52,8 +77,14 @@ export const createBooking = async (req, res) => {
     }
 
     // Optional: if addressId is provided, use Address collection (supports nearby matching)
-    let addressForBooking = address;
-    let addressForMatching = {};
+    let addressForBooking = address || addressLineInput || (hasCoords ? "Pinned Location" : undefined);
+    let addressForMatching = {
+      city: cityInput,
+      state: stateInput,
+      pincode: pincodeInput,
+      latitude: hasCoords ? latInput : undefined,
+      longitude: hasCoords ? lngInput : undefined,
+    };
 
     if (addressId) {
       if (!mongoose.Types.ObjectId.isValid(addressId)) {
@@ -79,6 +110,14 @@ export const createBooking = async (req, res) => {
       };
     }
 
+    if (!addressForBooking) {
+      return res.status(400).json({
+        success: false,
+        message: "addressLine or addressId is required",
+        result: {},
+      });
+    }
+
     // 1️⃣ Create booking
     const bookingDoc = {
       customerProfileId,
@@ -89,13 +128,13 @@ export const createBooking = async (req, res) => {
       status: "broadcasted",
     };
 
-    const hasCoords =
+    const hasCoordsForBooking =
       typeof addressForMatching?.latitude === "number" &&
       Number.isFinite(addressForMatching.latitude) &&
       typeof addressForMatching?.longitude === "number" &&
       Number.isFinite(addressForMatching.longitude);
 
-    if (hasCoords) {
+    if (hasCoordsForBooking) {
       bookingDoc.location = {
         type: "Point",
         coordinates: [addressForMatching.longitude, addressForMatching.latitude],
@@ -431,6 +470,11 @@ export const updateBookingStatus = async (req, res) => {
 
     booking.status = status;
     await booking.save();
+
+    if (status === "completed") {
+      // If payment is already verified, credit technician wallet (idempotent)
+      await settleBookingEarningsIfEligible(booking._id);
+    }
 
     return res.status(200).json({
       success: true,

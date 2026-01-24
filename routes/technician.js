@@ -43,6 +43,11 @@ import {
 import {
   createWalletTransaction,
   getWalletHistory,
+  requestWithdrawal,
+  getMyWithdrawals,
+  cancelMyWithdrawal,
+  ownerListWithdrawals,
+  ownerDecideWithdrawal,
 } from "../controllers/technicianWalletController.js";
 
 const router = express.Router();
@@ -103,5 +108,14 @@ router.get("/jobs/history", Auth, isTechnician, getTechnicianJobHistory);
 
 router.post("/wallet/transaction", Auth, createWalletTransaction);
 router.get("/wallet/history", Auth, isTechnician, getWalletHistory);
+
+// Technician payout requests
+router.post("/wallet/withdrawals/request", Auth, isTechnician, requestWithdrawal);
+router.get("/wallet/withdrawals/me", Auth, isTechnician, getMyWithdrawals);
+router.put("/wallet/withdrawals/:id/cancel", Auth, isTechnician, cancelMyWithdrawal);
+
+// Owner payout queue (approve/reject/mark-paid)
+router.get("/wallet/withdrawals", Auth, ownerListWithdrawals);
+router.put("/wallet/withdrawals/:id/decision", Auth, ownerDecideWithdrawal);
 
 export default router;
