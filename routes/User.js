@@ -126,7 +126,7 @@ const authLimiter = rateLimit({
 });
 
 const otpLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  //windowMs: 15 * 60 * 1000, // 15 minutes
   // max: 3, // 3 OTP requests per window
   message: {
     success: false,
@@ -288,3 +288,4 @@ router.delete("/cart/remove/:id", Auth, removeFromCart);
 router.post("/checkout", Auth, checkout);
 
 export default router;
+
