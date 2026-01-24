@@ -185,7 +185,10 @@ export const createBooking = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "Booking created & broadcasted",
+      message:
+        technicians.length > 0
+          ? "Booking created & broadcasted"
+          : "Booking created (no technicians available for this service)",
       result: {
         booking,
         broadcastCount: technicians.length,

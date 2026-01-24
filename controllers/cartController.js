@@ -6,9 +6,9 @@ import ProductBooking from "../Schemas/ProductBooking.js";
 import Address from "../Schemas/Address.js";
 import CustomerProfile from "../Schemas/CustomerProfile.js";
 import JobBroadcast from "../Schemas/TechnicianBroadcast.js";
+import TechnicianProfile from "../Schemas/TechnicianProfile.js";
 import mongoose from "mongoose";
 import { broadcastJobToTechnicians } from "../utils/sendNotification.js";
-import { findEligibleTechniciansForService } from "../utils/technicianMatching.js";
 
 // Cleanup old indexes on startup
 const cleanupOldIndexes = async () => {
@@ -721,10 +721,25 @@ export const checkout = async (req, res) => {
     // Phase 2: after commit, run broadcast asynchronously (non-blocking)
     setImmediate(async () => {
       try {
+        // Fetch ALL technicians (NO VALIDATION per requirement)
+        const allTechnicians = await TechnicianProfile.find({}, { _id: 1 }).lean();
+        const allTechnicianIds = (Array.isArray(allTechnicians) ? allTechnicians : [])
+          .map((t) => t?._id)
+          .filter(Boolean)
+          .map((id) => id.toString());
+
+        const hasTechnicians = allTechnicianIds.length > 0;
+
+        const chunk = (arr, size) => {
+          const out = [];
+          for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+          return out;
+        };
+
         for (const task of serviceBroadcastTasks) {
           // Skip broadcasting if booking already got assigned/cancelled in the meantime.
           // We allow both "requested" and already-"broadcasted" bookings here to make retries safe.
-          const bookingStillOpen = await ServiceBooking.find7One(
+          const bookingStillOpen = await ServiceBooking.findOne(
             {
               _id: task.bookingId,
               status: { $in: ["requested", "broadcasted"] },
@@ -737,24 +752,6 @@ export const checkout = async (req, res) => {
             continue;
           }
 
-          const technicians = await findEligibleTechniciansForService({
-            serviceId: task.serviceId,
-            address: {
-              city: task.addressSnapshot.city,
-              state: task.addressSnapshot.state,
-              pincode: task.addressSnapshot.pincode,
-              latitude: task.addressSnapshot.latitude,
-              longitude: task.addressSnapshot.longitude,
-            },
-            radiusMeters: 5000,
-            limit: 50,
-            enableGeo: true,
-          });
-
-          if (!technicians || technicians.length === 0) {
-            continue;
-          }
-
           // Mark booking broadcasted only if it hasn't been assigned yet.
           // Do this BEFORE inserting broadcasts so technicians fetching quickly can still populate.
           await ServiceBooking.updateOne(
@@ -764,34 +761,45 @@ export const checkout = async (req, res) => {
 
           const now = new Date();
 
-          try {
-            await JobBroadcast.insertMany(
-              technicians.map((t) => ({
-                bookingId: task.bookingId,
-                technicianId: t._id,
-                status: "sent",
-                sentAt: now,
-              })),
-              { ordered: false }
-            );
-          } catch (e) {
-            // Ignore duplicate key errors due to unique (bookingId, technicianId)
-            if (e?.code !== 11000) {
-              throw e;
+          const technicianIds = allTechnicianIds;
+
+          if (hasTechnicians) {
+            for (const batch of chunk(technicianIds, 1000)) {
+              try {
+                await JobBroadcast.insertMany(
+                  batch.map((technicianId) => ({
+                    bookingId: task.bookingId,
+                    technicianId,
+                    status: "sent",
+                    sentAt: now,
+                  })),
+                  { ordered: false }
+                );
+              } catch (e) {
+                // Ignore duplicate key errors due to unique (bookingId, technicianId)
+                if (e?.code !== 11000) {
+                  throw e;
+                }
+              }
             }
           }
 
-          await broadcastJobToTechnicians(req.io, technicians.map((t) => t._id.toString()), {
-            bookingId: task.bookingId,
-            serviceId: task.serviceId,
-            serviceName: task.serviceName,
-            baseAmount: task.baseAmount,
-            address: task.addressSnapshot.addressLine,
-            scheduledAt: task.scheduledAt,
+          // Fire-and-forget notifications (non-blocking)
+          Promise.resolve(
+            broadcastJobToTechnicians(req.io, technicianIds, {
+              bookingId: task.bookingId,
+              serviceId: task.serviceId,
+              serviceName: task.serviceName,
+              baseAmount: task.baseAmount,
+              address: task.addressSnapshot.addressLine,
+              scheduledAt: task.scheduledAt,
+            })
+          ).catch((err) => {
+            console.error("⚠️ Broadcast notification failed (non-blocking):", err);
           });
         }
       } catch (notifErr) {
-        console.error("⚠️ Post-commit broadcast failed (non-blocking):", notifErr.message);
+        console.error("⚠️ Post-commit broadcast failed (non-blocking):", notifErr);
       }
     });
 

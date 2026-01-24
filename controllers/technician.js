@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import TechnicianProfile from "../Schemas/TechnicianProfile.js";
+import Service from "../Schemas/Service.js";
 import ServiceBooking from "../Schemas/ServiceBooking.js";
 import JobBroadcast from "../Schemas/TechnicianBroadcast.js";
 
@@ -12,6 +13,167 @@ const validateSkills = (skills) => {
   return skills.every((item) =>
     item && item.serviceId && isValidObjectId(item.serviceId)
   );
+};
+
+const normalizeServiceIdsInput = (body) => {
+  const raw = body?.serviceIds ?? body?.serviceId;
+  const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+
+  const normalized = list
+    .map((v) => (typeof v === "string" ? v.trim() : v))
+    .filter(Boolean)
+    .map(String);
+
+  // de-dupe
+  return Array.from(new Set(normalized));
+};
+
+/* ================= ADD TECHNICIAN SKILLS (APPEND) ================= */
+export const addTechnicianSkills = async (req, res) => {
+  try {
+    const technicianProfileId = req.user?.profileId;
+
+    if (!technicianProfileId || !isValidObjectId(technicianProfileId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+        result: {},
+      });
+    }
+
+    const serviceIds = normalizeServiceIdsInput(req.body);
+    if (serviceIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "serviceIds (or serviceId) is required",
+        result: {},
+      });
+    }
+
+    const invalidIds = serviceIds.filter((id) => !isValidObjectId(id));
+    if (invalidIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid serviceIds",
+        result: { invalidIds },
+      });
+    }
+
+    const serviceObjectIds = serviceIds.map((id) => new mongoose.Types.ObjectId(id));
+
+    // Optional safety: ensure services exist & active
+    const activeServices = await Service.find({ _id: { $in: serviceObjectIds }, isActive: true })
+      .select("_id")
+      .lean();
+    const activeSet = new Set(activeServices.map((s) => String(s._id)));
+    const missingOrInactive = serviceIds.filter((id) => !activeSet.has(String(id)));
+    if (missingOrInactive.length > 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Some services were not found or inactive",
+        result: { missingOrInactive },
+      });
+    }
+
+    const technician = await TechnicianProfile.findByIdAndUpdate(
+      technicianProfileId,
+      {
+        $addToSet: {
+          skills: { $each: serviceObjectIds.map((sid) => ({ serviceId: sid })) },
+        },
+      },
+      { new: true, runValidators: true }
+    )
+      .populate("skills.serviceId", "serviceName")
+      .select("-password");
+
+    if (!technician) {
+      return res.status(404).json({
+        success: false,
+        message: "Technician profile not found",
+        result: {},
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Skills added successfully",
+      result: technician,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      result: { error: error.message },
+    });
+  }
+};
+
+/* ================= REMOVE TECHNICIAN SKILLS ================= */
+export const removeTechnicianSkills = async (req, res) => {
+  try {
+    const technicianProfileId = req.user?.profileId;
+
+    if (!technicianProfileId || !isValidObjectId(technicianProfileId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+        result: {},
+      });
+    }
+
+    const serviceIds = normalizeServiceIdsInput(req.body);
+    if (serviceIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "serviceIds (or serviceId) is required",
+        result: {},
+      });
+    }
+
+    const invalidIds = serviceIds.filter((id) => !isValidObjectId(id));
+    if (invalidIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid serviceIds",
+        result: { invalidIds },
+      });
+    }
+
+    const serviceObjectIds = serviceIds.map((id) => new mongoose.Types.ObjectId(id));
+
+    const technician = await TechnicianProfile.findByIdAndUpdate(
+      technicianProfileId,
+      {
+        $pull: {
+          skills: { serviceId: { $in: serviceObjectIds } },
+        },
+      },
+      { new: true, runValidators: true }
+    )
+      .populate("skills.serviceId", "serviceName")
+      .select("-password");
+
+    if (!technician) {
+      return res.status(404).json({
+        success: false,
+        message: "Technician profile not found",
+        result: {},
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Skills removed successfully",
+      result: technician,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      result: { error: error.message },
+    });
+  }
 };
 
 /* ================= UPDATE TECHNICIAN SKILLS ================= */

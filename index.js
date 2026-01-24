@@ -11,7 +11,6 @@ import { Server } from "socket.io";
 import UserRoutes from "./routes/User.js";
 import TechnicianRoutes from "./routes/technician.js";
 import AddressRoutes from "./routes/address.js";
-import DevUserRoutes from "./routes/devUser.js";
 
 dotenv.config();
 
@@ -143,9 +142,6 @@ App.use("/api/user", UserRoutes);
 App.use("/api/technician", TechnicianRoutes);
 App.use("/api/addresses", AddressRoutes);
 
-// DEV ONLY: bypass OTP to create users for testing
-// Route is always mounted, but controller returns 404 unless ENABLE_DEV_USER_CREATION=true
-App.use("/api/dev", DevUserRoutes);
 
 // ❗ GLOBAL ERROR HANDLER (MUST BE LAST)
 App.use((err, req, res, next) => {

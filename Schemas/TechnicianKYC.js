@@ -130,7 +130,6 @@ const technicianKycSchema = new mongoose.Schema(
         type: String,
         select: false,
         sparse: true,
-        index: true,
       },
 
       ifscCode: {
@@ -214,7 +213,17 @@ const technicianKycSchema = new mongoose.Schema(
 );
 
 // 🔐 Unique index for account number hash (plaintext hashed)
-technicianKycSchema.index({ "bankDetails.accountNumberHash": 1 }, { unique: true, sparse: true });
+// Guard against accidental double-registration (can happen if module is evaluated twice).
+const hasAccountHashIndex = technicianKycSchema
+  .indexes()
+  .some(([fields]) => fields && fields["bankDetails.accountNumberHash"] === 1);
+
+if (!hasAccountHashIndex) {
+  technicianKycSchema.index(
+    { "bankDetails.accountNumberHash": 1 },
+    { unique: true, sparse: true }
+  );
+}
 
 /* ==========================
    🔐 ENCRYPTION / DECRYPTION HELPERS

@@ -14,6 +14,8 @@ import {
   getTechnicianById,
   getMyTechnician,
   updateTechnician,
+  addTechnicianSkills,
+  removeTechnicianSkills,
   updateTechnicianStatus,
   deleteTechnician,
   updateTechnicianTraining,
@@ -59,6 +61,8 @@ router.get("/technicianAll", Auth, getAllTechnicians);
 router.get("/technicianById/:id", Auth, getTechnicianById);
 router.get("/technician/me", Auth, getMyTechnician);
 router.put("/updateTechnician", Auth, updateTechnician);
+router.put("/technician/skills/add", Auth, isTechnician, addTechnicianSkills);
+router.put("/technician/skills/remove", Auth, isTechnician, removeTechnicianSkills);
 router.put("/technician/status", Auth, updateTechnicianStatus);
 router.put("/:technicianId/training", Auth, updateTechnicianTraining);
 router.post("/technician/profile-image", Auth, isTechnician, upload.single("profileImage"), uploadProfileImage);
@@ -94,7 +98,8 @@ router.delete("/technician/kyc/orphaned/cleanup/all", Auth, deleteAllOrphanedKyc
 /* ================= JOB BROADCAST ================= */
 
 router.get("/job-broadcast/my-jobs", Auth, isTechnician, getMyJobs);
-router.put("/job-broadcast/respond/:id", Auth, isTechnician, respondToJob);
+router.get("/job-broadcast/my-jobs", Auth, getMyJobs);
+router.put("/job-broadcast/respond/:id", Auth, respondToJob);
 
 /* ================= JOB UPDATE ================= */
 
