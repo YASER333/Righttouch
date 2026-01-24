@@ -96,7 +96,7 @@ export const getMyJobs = async (req, res) => {
     }
 
     const jobs = await JobBroadcast.find({
-      technicianId: technicianProfileId,
+      //technicianId: technicianProfileId,
       status: "sent",
     })
       .populate({
@@ -328,4 +328,5 @@ export const respondToJob = async (req, res) => {
     session.endSession();
   }
 };
+
 
