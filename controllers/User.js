@@ -482,6 +482,7 @@
         token,
         role: normalizedRole,
         result: {
+          token: token,
           role: normalizedRole,
           profileId: user._id,
           userId: user.userId || user._id,
@@ -952,3 +953,4 @@
     const users = await applyRolePopulates(query, normalizedRole);
     return ok(res, 200, "Users fetched successfully", users || []);
   };
+
