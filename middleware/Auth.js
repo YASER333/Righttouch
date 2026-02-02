@@ -24,16 +24,18 @@ export const Auth = (req, res, next) => {
       algorithms: ["HS256"], // prevents alg attack
     });
 
-    // Attach ONLY what is needed (support both legacy + new token payloads)
-    const userId = decoded.userId || decoded.profileId;
-    const profileId = decoded.profileId || decoded.userId;
-
-    req.user = {
-      userId,
-      profileId,
-      role: decoded.role,
-      email: decoded.email,
-    };
+    // Attach ONLY what is needed (User-centric model)
+    const userId = decoded.userId;
+    let profileId = undefined;
+    if (decoded.role === "Technician" && decoded.technicianProfileId) {
+      profileId = decoded.technicianProfileId;
+    }
+      req.user = {
+        userId,
+        role: decoded.role,
+        email: decoded.email,
+        technicianProfileId: decoded.technicianProfileId || null,
+      };
 
     next();
   } catch (err) {
@@ -73,15 +75,17 @@ export const authorizeRoles = (...allowedRoles) => {
         return res.status(403).json({ success: false, message: `Access denied: ${allowedRoles.join(", ")} only`, result: "Insufficient permissions" });
       }
 
-      const userId = decoded.userId || decoded.profileId;
-      const profileId = decoded.profileId || decoded.userId;
-
+      const userId = decoded.userId;
+      let profileId = undefined;
+      if (decoded.role === "Technician" && decoded.technicianProfileId) {
+        profileId = decoded.technicianProfileId;
+      }
       req.user = {
         userId,
-        profileId,
         role: decoded.role,
         email: decoded.email,
       };
+      if (profileId) req.user.profileId = profileId;
       next();
     } catch (error) {
       return res.status(401).json({ success: false, message: "Token invalid or expired", result: "Authentication failed" });

@@ -27,7 +27,7 @@ const ensureCustomer = (req) => {
 export const productBooking = async (req, res) => {
   try {
     ensureCustomer(req);
-    const customerProfileId = req.user.profileId;
+      const customerId = req.user.userId; // Ensure customerId is used consistently
 
     const { productId, amount, quantity = 1, paymentStatus } = req.body;
 
@@ -65,7 +65,7 @@ export const productBooking = async (req, res) => {
     }
 
     const productData = await ProductBooking.create({
-      customerProfileId,
+      customerId,
       productId,
       status: "active",
       amount: amountNum,
@@ -100,11 +100,11 @@ export const getAllProductBooking = async (req, res) => {
           result: {},
         });
       }
-      filter = { customerProfileId: req.user.profileId };
+      filter = { customerId: req.user.userId };
     }
 
     const getAllBooking = await ProductBooking.find(filter)
-      .populate("customerProfileId", "firstName lastName gender mobileNumber")
+      .populate("customerId", "firstName lastName gender mobileNumber")
       .populate("productId", "productName pricingModel estimatedPriceFrom estimatedPriceTo");
 
     res.status(200).json({
@@ -125,7 +125,7 @@ export const getAllProductBooking = async (req, res) => {
 export const productBookingUpdate = async (req, res) => {
   try {
     ensureCustomer(req);
-    const customerProfileId = req.user.profileId;
+    const customerId = req.user.userId;
 
     const { id } = req.params;
     const { amount, paymentStatus, status, quantity } = req.body;
@@ -172,7 +172,7 @@ export const productBookingUpdate = async (req, res) => {
     }
 
     const updateBooking = await ProductBooking.findOneAndUpdate(
-      { _id: id, customerProfileId },
+      { _id: id, customerId },
       update,
       { new: true, runValidators: true, context: "query" }
     );
@@ -202,7 +202,7 @@ export const productBookingUpdate = async (req, res) => {
 export const productBookingCancel = async (req, res) => {
   try {
     ensureCustomer(req);
-    const customerProfileId = req.user.profileId;
+    const customerId = req.user.userId;
 
     const { id } = req.params;
 

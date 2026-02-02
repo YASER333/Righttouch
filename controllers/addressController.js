@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 import Address from "../Schemas/Address.js";
-import CustomerProfile from "../Schemas/CustomerProfile.js";
+import User from "../Schemas/User.js";
 
 const ensureCustomer = (req) => {
   if (!req.user || req.user.role !== "Customer") {
@@ -9,7 +9,7 @@ const ensureCustomer = (req) => {
     err.statusCode = 403;
     throw err;
   }
-  if (!req.user.profileId || !mongoose.Types.ObjectId.isValid(req.user.profileId)) {
+  if (!req.user.userId || !mongoose.Types.ObjectId.isValid(req.user.userId)) {
     const err = new Error("Invalid token profile");
     err.statusCode = 401;
     throw err;
@@ -22,7 +22,7 @@ const getAddressIdFromReq = (req) => req.params?.id || req.body?.addressId || re
 export const createAddress = async (req, res) => {
   try {
     ensureCustomer(req);
-    const customerProfileId = req.user.profileId;
+    const customerId = req.user.userId;
 
     const {
       label,
@@ -44,7 +44,7 @@ export const createAddress = async (req, res) => {
     }
 
     // 🔒 Optional safety limit
-    const count = await Address.countDocuments({ customerProfileId });
+    const count = await Address.countDocuments({ customerId });
     if (count >= 10) {
       return res.status(400).json({
         success: false,
@@ -56,14 +56,14 @@ export const createAddress = async (req, res) => {
     // 🔒 Ensure single default address
     if (isDefault) {
       await Address.updateMany(
-        { customerProfileId },
+        { customerId },
         { isDefault: false }
       );
     }
 
-    // ✅ Take name + phone from CustomerProfile (not from request body)
-    const customer = await CustomerProfile.findById(customerProfileId).select(
-      "firstName lastName mobileNumber email"
+    // ✅ Take name + phone from User (not from request body)
+    const customer = await User.findById(customerId).select(
+      "fname lname mobileNumber email"
     );
 
     if (!customer) {
@@ -74,7 +74,7 @@ export const createAddress = async (req, res) => {
       });
     }
 
-    const derivedName = [customer.firstName, customer.lastName]
+    const derivedName = [customer.fname, customer.lname]
       .filter(Boolean)
       .join(" ")
       .trim();
@@ -90,7 +90,7 @@ export const createAddress = async (req, res) => {
     }
 
     const address = await Address.create({
-      customerProfileId,
+      customerId,
       label: label || "home",
       name: derivedName,
       phone: derivedPhone,
@@ -125,9 +125,9 @@ export const getMyAddresses = async (req, res) => {
     ensureCustomer(req);
 
     const addresses = await Address.find({
-      customerProfileId: req.user.profileId,
+      customerId: req.user.userId,
     })
-      .populate("customerProfileId", "firstName lastName mobileNumber email")
+      .populate("customerId", "fname lname mobileNumber email")
       .sort({ isDefault: -1, createdAt: -1 });
 
     res.json({
@@ -168,8 +168,8 @@ export const getAddressById = async (req, res) => {
 
     const address = await Address.findOne({
       _id: addressId,
-      customerProfileId: req.user.profileId,
-    }).populate("customerProfileId", "firstName lastName mobileNumber email");
+      customerId: req.user.userId,
+    }).populate("customerId", "fname lname mobileNumber email");
 
     if (!address) {
       return res.status(404).json({
@@ -213,7 +213,7 @@ export const updateAddress = async (req, res) => {
 
     const address = await Address.findOne({
       _id: id,
-      customerProfileId: req.user.profileId,
+      customerId: req.user.userId,
     });
 
     if (!address) {
@@ -226,7 +226,7 @@ export const updateAddress = async (req, res) => {
 
     if (req.body.isDefault) {
       await Address.updateMany(
-        { customerProfileId: req.user.profileId, _id: { $ne: id } },
+        { customerId: req.user.userId, _id: { $ne: id } },
         { isDefault: false }
       );
     }
@@ -284,7 +284,7 @@ export const deleteAddress = async (req, res) => {
 
     const address = await Address.findOneAndDelete({
       _id: id,
-      customerProfileId: req.user.profileId,
+      customerId: req.user.userId,
     });
 
     if (!address) {
@@ -335,7 +335,7 @@ export const setDefaultAddress = async (req, res) => {
     // Check if address exists and belongs to customer
     const address = await Address.findOne({
       _id: id,
-      customerProfileId: req.user.profileId,
+      customerId: req.user.userId,
     });
 
     if (!address) {
@@ -348,7 +348,7 @@ export const setDefaultAddress = async (req, res) => {
 
     // Unset all other defaults
     await Address.updateMany(
-      { customerProfileId: req.user.profileId, _id: { $ne: id } },
+      { customerId: req.user.userId, _id: { $ne: id } },
       { isDefault: false }
     );
 
@@ -380,9 +380,9 @@ export const getDefaultAddress = async (req, res) => {
     ensureCustomer(req);
 
     const address = await Address.findOne({
-      customerProfileId: req.user.profileId,
+      customerId: req.user.userId,
       isDefault: true,
-    }).populate("customerProfileId", "firstName lastName mobileNumber email");
+    }).populate("customerId", "fname lname mobileNumber email");
 
     if (!address) {
       return res.status(404).json({
@@ -411,7 +411,7 @@ export const getDefaultAddress = async (req, res) => {
 export const adminGetAllAddresses = async (req, res) => {
   try {
     const addresses = await Address.find()
-      .populate("customerProfileId", "firstName lastName mobileNumber email")
+      .populate("customerId", "fname lname mobileNumber email")
       .sort({ createdAt: -1 });
     res.json({ success: true, result: addresses });
   } catch (err) {
@@ -428,8 +428,8 @@ export const adminGetAddressById = async (req, res) => {
     }
 
     const address = await Address.findById(id).populate(
-      "customerProfileId",
-      "firstName lastName mobileNumber email"
+      "customerId",
+      "fname lname mobileNumber email"
     );
     if (!address) {
       return res.status(404).json({ success: false, message: "Address not found", result: {} });

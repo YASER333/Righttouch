@@ -14,6 +14,34 @@ const ok = (res, status, message, result = {}) =>
 const fail = (res, status, message, result = {}) =>
   res.status(status).json({ success: false, message, result });
 
+// ... existing code ...
+
+export const retryPaymentSettlement = async (req, res) => {
+  try {
+    // Only Admin or Owner can force retry
+    if (!["Admin", "Owner"].includes(req.user?.role)) {
+      return fail(res, 403, "Admin/Owner access only", {});
+    }
+
+    const { bookingId } = req.body;
+    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      return fail(res, 400, "Valid bookingId is required", {});
+    }
+
+    const { settled, reason } = await settleBookingEarningsIfEligible(bookingId);
+
+    if (settled) {
+      return ok(res, 200, "Settlement successful", { reason });
+    } else {
+      return fail(res, 400, "Settlement not applicable or failed", { reason });
+    }
+
+  } catch (error) {
+    return fail(res, 500, error.message, { error: error?.message });
+  }
+};
+
+
 const toMoney = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
@@ -98,7 +126,7 @@ export const createPaymentOrder = async (req, res) => {
     const booking = await ServiceBooking.findById(bookingId);
     if (!booking) return fail(res, 404, "Booking not found", {});
 
-    if (booking.customerProfileId?.toString() !== req.user.profileId?.toString()) {
+    if (booking.customerId?.toString() !== req.user.userId?.toString()) {
       return fail(res, 403, "Access denied for this booking", {});
     }
 
@@ -111,7 +139,7 @@ export const createPaymentOrder = async (req, res) => {
     }
 
     // Swiggy-style: payment happens after technician accepts (or later), but never before booking exists
-    const allowedBookingStatuses = ["accepted", "on_the_way", "reached", "in_progress", "completed"]; 
+    const allowedBookingStatuses = ["accepted", "on_the_way", "reached", "in_progress", "completed"];
     if (!allowedBookingStatuses.includes(booking.status)) {
       return fail(res, 400, `Payment not allowed in status: ${booking.status}`, {});
     }
@@ -155,7 +183,7 @@ export const createPaymentOrder = async (req, res) => {
           payment_capture: 1,
           notes: {
             bookingId: booking._id.toString(),
-            customerProfileId: booking.customerProfileId.toString(),
+            customerId: booking.customerId.toString(),
           },
         },
       });
@@ -208,7 +236,7 @@ export const verifyPayment = async (req, res) => {
 
     const booking = await ServiceBooking.findById(bookingId);
     if (!booking) return fail(res, 404, "Booking not found", {});
-    if (booking.customerProfileId?.toString() !== req.user.profileId?.toString()) {
+    if (booking.customerId?.toString() !== req.user.userId?.toString()) {
       return fail(res, 403, "Access denied for this booking", {});
     }
 

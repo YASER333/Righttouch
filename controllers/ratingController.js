@@ -11,9 +11,7 @@ const isValidObjectId = value => mongoose.Types.ObjectId.isValid(value);
 export const userRating = async (req, res) => {
   try {
     const userId = req.user?.userId;
-    const profileId = req.user?.profileId;
-    
-    if (!userId || !profileId) {
+    if (!userId) {
       return res.status(401).json({ success: false, message: "Unauthorized", result: {} });
     }
 
@@ -53,8 +51,8 @@ export const userRating = async (req, res) => {
     // ✅ Verify booking exists and belongs to user
     let booking;
     if (bookingType === "service") {
-      // Use customerProfileId (not customerId) - matches schema
-      booking = await ServiceBooking.findOne({ _id: bookingId, customerProfileId: profileId });
+      // Use customerId (User) - matches schema
+      booking = await ServiceBooking.findOne({ _id: bookingId, customerId: userId });
       if (!booking) {
         return res.status(404).json({
           success: false,

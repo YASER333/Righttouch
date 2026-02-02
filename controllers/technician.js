@@ -1,3 +1,50 @@
+// ================= UPDATE TECHNICIAN LIVE LOCATION =================
+export const updateTechnicianLocation = async (req, res) => {
+  try {
+    const technicianProfileId = req.user?.technicianProfileId;
+    const { latitude, longitude } = req.body;
+
+    if (!technicianProfileId || !mongoose.Types.ObjectId.isValid(technicianProfileId)) {
+      return res.status(401).json({ success: false, message: "Unauthorized", result: {} });
+    }
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return res.status(400).json({ success: false, message: "Invalid coordinates", result: {} });
+    }
+
+    // Only update if moved > 25 meters
+    const oldProfile = await TechnicianProfile.findById(technicianProfileId).select("location");
+    let shouldUpdate = true;
+    if (oldProfile && oldProfile.location && Array.isArray(oldProfile.location.coordinates)) {
+      const [oldLng, oldLat] = oldProfile.location.coordinates;
+      const toRad = deg => (deg * Math.PI) / 180;
+      const R = 6371000; // meters
+      const dLat = toRad(latitude - oldLat);
+      const dLng = toRad(longitude - oldLng);
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(oldLat)) * Math.cos(toRad(latitude)) *
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const dist = R * c;
+      if (dist < 25) shouldUpdate = false;
+    }
+    if (!shouldUpdate) {
+      return res.json({ success: true, message: "Location unchanged (moved < 25m)" });
+    }
+    await TechnicianProfile.updateOne(
+      { _id: technicianProfileId },
+      {
+        location: {
+          type: "Point",
+          coordinates: [longitude, latitude],
+        },
+        "availability.isOnline": true,
+      }
+    );
+    return res.json({ success: true, message: "Location updated" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message, result: { error: error.message } });
+  }
+};
 import mongoose from "mongoose";
 import TechnicianProfile from "../Schemas/TechnicianProfile.js";
 import Service from "../Schemas/Service.js";

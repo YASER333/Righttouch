@@ -29,7 +29,7 @@ const ratingSchema = new mongoose.Schema(
       ref: "TechnicianProfile",
     },
 
-    customerId: {
+    userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,

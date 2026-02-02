@@ -1,3 +1,4 @@
+
 // Schemas/JobBroadcast.js
 import mongoose from "mongoose";
 
@@ -33,10 +34,11 @@ const jobBroadcastSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+
+
 // 🚨 Prevent duplicate job sends
-jobBroadcastSchema.index(
-  { bookingId: 1, technicianId: 1 },
-  { unique: true }
-);
+jobBroadcastSchema.index({ bookingId: 1, technicianId: 1 }, { unique: true });
+// Index for sentAt (for querying/cleanup/analytics)
+jobBroadcastSchema.index({ sentAt: 1 });
 
 export default mongoose.models.JobBroadcast || mongoose.model("JobBroadcast", jobBroadcastSchema);

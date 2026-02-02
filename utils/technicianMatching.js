@@ -48,6 +48,7 @@ export const findEligibleTechniciansForService = async ({
     _id: { $in: approvedTechnicianIds },
     workStatus: "approved",
     profileComplete: true,
+    trainingCompleted: true,
     "availability.isOnline": true,
     $or: [
       // canonical shape: skills: [{ serviceId: ObjectId }]

@@ -4,39 +4,18 @@ import Service from "../Schemas/Service.js";
 import ServiceBooking from "../Schemas/ServiceBooking.js";
 import ProductBooking from "../Schemas/ProductBooking.js";
 import Address from "../Schemas/Address.js";
-import CustomerProfile from "../Schemas/CustomerProfile.js";
+// import CustomerProfile from "../Schemas/CustomerProfile.js";
 import JobBroadcast from "../Schemas/TechnicianBroadcast.js";
 import TechnicianProfile from "../Schemas/TechnicianProfile.js";
 import mongoose from "mongoose";
 import { broadcastJobToTechnicians } from "../utils/sendNotification.js";
 
-// Cleanup old indexes on startup
-const cleanupOldIndexes = async () => {
-  try {
-    const indexes = await Cart.collection.getIndexes();
-    for (const indexName of Object.keys(indexes)) {
-      if (indexName.includes("userId") || indexName.includes("productId")) {
-        await Cart.collection.dropIndex(indexName);
-        console.log(`Dropped old index: ${indexName}`);
-      }
-    }
-  } catch (err) {
-    console.error("Index cleanup error:", err);
-  }
-};
 
-// Run cleanup once
-cleanupOldIndexes();
 
 const ensureCustomer = (req) => {
-  if (!req.user || req.user.role !== "Customer") {
-    const err = new Error("Customer access only");
+  if (!req.user || req.user.role !== "Customer" || !req.user.userId || !mongoose.Types.ObjectId.isValid(req.user.userId)) {
+    const err = new Error("Customer access only or invalid userId");
     err.statusCode = 403;
-    throw err;
-  }
-  if (!req.user.profileId || !mongoose.Types.ObjectId.isValid(req.user.profileId)) {
-    const err = new Error("Invalid token profile");
-    err.statusCode = 401;
     throw err;
   }
 };
@@ -48,28 +27,23 @@ const toFiniteNumber = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
-const normalizeAddressId = (v) => {
-  if (typeof v !== "string") return v || null;
-  const trimmed = v.trim();
-  return trimmed ? trimmed : null;
-};
-
 /* ================= ADD TO CART ================= */
 export const addToCart = async (req, res) => {
   try {
+
     ensureCustomer(req);
     const { itemId, itemType, quantity = 1 } = req.body;
-    const customerProfileId = req.user.profileId;
+    const customerId = req.user.userId;
 
     // Debug: Log what we're receiving
-    console.log("Add to cart - customerProfileId:", customerProfileId);
+    console.log("Add to cart - customerId:", customerId);
     console.log("Add to cart - itemId:", itemId);
     console.log("Add to cart - itemType:", itemType);
 
-    if (!customerProfileId) {
+    if (!customerId) {
       return res.status(401).json({
         success: false,
-        message: "Customer profile ID not found in token",
+        message: "Customer ID not found in token",
         result: {},
       });
     }
@@ -99,10 +73,9 @@ export const addToCart = async (req, res) => {
     }
 
     // Check if item exists
-    const item =
-      itemType === "product"
-        ? await Product.findById(itemId)
-        : await Service.findById(itemId);
+    const item = itemType === "product"
+      ? await Product.findById(itemId)
+      : await Service.findById(itemId);
 
     if (!item) {
       return res.status(404).json({
@@ -112,10 +85,10 @@ export const addToCart = async (req, res) => {
       });
     }
 
-    // Add or update cart item
+    // Add or update cart item (enforce unique per user/item)
     const cartItem = await Cart.findOneAndUpdate(
-      { customerProfileId, itemType, itemId },
-      { quantity },
+      { customerId, itemType, itemId },
+      { $set: { quantity } },
       { upsert: true, new: true, runValidators: true }
     );
 
@@ -138,9 +111,9 @@ export const addToCart = async (req, res) => {
 export const getMyCart = async (req, res) => {
   try {
     ensureCustomer(req);
-    const customerProfileId = req.user.profileId;
+    const customerId = req.user.userId;
 
-    const cartItems = await Cart.find({ customerProfileId });
+    const cartItems = await Cart.find({ customerId });
 
     // Populate items based on type (uses populate; keeps response shape the same)
     await Promise.all(
@@ -181,7 +154,7 @@ export const updateCartItem = async (req, res) => {
   try {
     ensureCustomer(req);
     const { itemId, itemType, quantity } = req.body;
-    const customerProfileId = req.user.profileId;
+    const customerId = req.user.userId;
 
     if (!itemId || !itemType || quantity == null) {
       return res.status(400).json({
@@ -209,7 +182,7 @@ export const updateCartItem = async (req, res) => {
 
     if (quantity <= 0) {
       // If quantity is 0 or negative, remove the item
-      await Cart.findOneAndDelete({ customerProfileId, itemType, itemId });
+      await Cart.findOneAndDelete({ customerId, itemType, itemId });
       return res.status(200).json({
         success: true,
         message: "Item removed from cart",
@@ -218,7 +191,7 @@ export const updateCartItem = async (req, res) => {
     }
 
     const cartItem = await Cart.findOneAndUpdate(
-      { customerProfileId, itemType, itemId },
+      { customerId, itemType, itemId },
       { quantity },
       { new: true, runValidators: true }
     );
@@ -251,9 +224,9 @@ export const getCartById = async (req, res) => {
   try {
     ensureCustomer(req);
     const { id } = req.params;
-    const customerProfileId = req.user.profileId;
+    const customerId = req.user.userId;
 
-    const cartItem = await Cart.findOne({ _id: id, customerProfileId });
+    const cartItem = await Cart.findOne({ _id: id, customerId });
 
     if (!cartItem) {
       return res.status(404).json({
@@ -296,7 +269,7 @@ export const updateCartById = async (req, res) => {
     ensureCustomer(req);
     const { id } = req.params;
     const { quantity } = req.body;
-    const customerProfileId = req.user.profileId;
+    const customerId = req.user.userId;
 
     if (quantity == null) {
       return res.status(400).json({
@@ -316,7 +289,7 @@ export const updateCartById = async (req, res) => {
 
     if (quantity <= 0) {
       // Remove the item
-      const deletedItem = await Cart.findOneAndDelete({ _id: id, customerProfileId });
+      const deletedItem = await Cart.findOneAndDelete({ _id: id, customerId });
       if (!deletedItem) {
         return res.status(404).json({
           success: false,
@@ -332,7 +305,7 @@ export const updateCartById = async (req, res) => {
     }
 
     const cartItem = await Cart.findOneAndUpdate(
-      { _id: id, customerProfileId },
+      { _id: id, customerId },
       { quantity },
       { new: true, runValidators: true }
     );
@@ -365,9 +338,9 @@ export const removeFromCart = async (req, res) => {
   try {
     ensureCustomer(req);
     const { id } = req.params;
-    const customerProfileId = req.user.profileId;
+    const customerId = req.user.userId;
 
-    const cartItem = await Cart.findOneAndDelete({ _id: id, customerProfileId });
+    const cartItem = await Cart.findOneAndDelete({ _id: id, customerId });
 
     if (!cartItem) {
       return res.status(404).json({
@@ -399,15 +372,23 @@ export const checkout = async (req, res) => {
 
   try {
     ensureCustomer(req);
-    const customerProfileId = req.user.profileId;
+    const customerId = req.user.userId;
 
-    // Optional safety: ensure profile still exists
-    const customerProfile = await CustomerProfile.findById(customerProfileId).session(session);
-    if (!customerProfile) {
+    // Optional safety: ensure user still exists
+    if (!req.user) {
       await session.abortTransaction();
       return res.status(404).json({
         success: false,
-        message: "Customer profile not found",
+        message: "User not found",
+        result: {},
+      });
+    }
+    // Check for required user fields
+    if (!req.user.fname || !req.user.mobileNumber) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "Please complete your profile (firstName, mobileNumber) before checkout",
         result: {},
       });
     }
@@ -476,7 +457,7 @@ export const checkout = async (req, res) => {
         });
       }
 
-      address = await Address.findOne({ _id: addressId, customerProfileId }).session(session);
+      address = await Address.findOne({ _id: addressId, customerId }).session(session);
       if (!address) {
         await session.abortTransaction();
         return res.status(404).json({
@@ -498,12 +479,12 @@ export const checkout = async (req, res) => {
         longitude: address.longitude,
       };
     } else {
-      const derivedName = [customerProfile.firstName, customerProfile.lastName]
+      const derivedName = [req.user.fname, req.user.lname]
         .filter(Boolean)
         .join(" ")
         .trim();
 
-      const derivedPhone = customerProfile.mobileNumber;
+      const derivedPhone = req.user.mobileNumber;
 
       const finalAddressLine = addressLineInput || "Pinned Location";
 
@@ -542,7 +523,7 @@ export const checkout = async (req, res) => {
     }
 
     // Get all cart items for the user
-    const cartItems = await Cart.find({ customerProfileId }).session(session);
+    const cartItems = await Cart.find({ customerId }).session(session);
 
     if (cartItems.length === 0) {
       await session.abortTransaction();
@@ -562,7 +543,7 @@ export const checkout = async (req, res) => {
       if (cartItem.itemType === "service") {
         const service = await Service.findById(cartItem.itemId).session(session);
         if (!service || !service.isActive) {
-          await Cart.findByIdAndDelete(cartItem._id).session(session);
+          await Cart.findByIdAndDelete({ _id: cartItem._id, customerId }).session(session);
           removedItems.push({ id: cartItem.itemId, type: "service", reason: "not found or inactive" });
         } else {
           validServiceItems.push(cartItem);
@@ -570,7 +551,7 @@ export const checkout = async (req, res) => {
       } else if (cartItem.itemType === "product") {
         const product = await Product.findById(cartItem.itemId).session(session);
         if (!product || !product.isActive) {
-          await Cart.findByIdAndDelete(cartItem._id).session(session);
+          await Cart.findByIdAndDelete({ _id: cartItem._id, customerId }).session(session);
           removedItems.push({ id: cartItem.itemId, type: "product", reason: "not found or inactive" });
         } else {
           validProductItems.push(cartItem);
@@ -631,7 +612,7 @@ export const checkout = async (req, res) => {
         Number.isFinite(addressSnapshot.longitude);
 
       const serviceBookingDoc = {
-        customerProfileId,
+        customerId,
         serviceId: cartItem.itemId,
         baseAmount,
         address: addressSnapshot.addressLine,
@@ -692,7 +673,7 @@ export const checkout = async (req, res) => {
 
       const productBooking = await ProductBooking.create([{
         productId: cartItem.itemId,
-        customerProfileId,
+        customerId,
         amount: finalAmount,
         paymentStatus: paymentMode === "online" ? "pending" : "pending",
         status: "active",
@@ -714,7 +695,7 @@ export const checkout = async (req, res) => {
     }
 
     // Clear the cart only after all bookings are created successfully
-    await Cart.deleteMany({ customerProfileId }).session(session);
+    await Cart.deleteMany({ customerId }).session(session);
 
     await session.commitTransaction();
 

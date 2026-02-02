@@ -2,9 +2,9 @@ import mongoose from "mongoose";
 
 const addressSchema = new mongoose.Schema(
   {
-    customerProfileId: {
+    customerId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "CustomerProfile",
+      ref: "User",
       required: true,
       index: true,
     },
@@ -49,13 +49,13 @@ const addressSchema = new mongoose.Schema(
     },
 
     latitude: {
-      type: String,
-      trim: true,
+      type: Number,
+      required: false,
     },
 
     longitude: {
-      type: String,
-      trim: true,
+      type: Number,
+      required: false,
     },
 
     isDefault: {
@@ -67,10 +67,10 @@ const addressSchema = new mongoose.Schema(
 );
 
 /**
- * Only ONE default address per customer
+ * Only ONE default address per user
  */
 addressSchema.index(
-  { customerProfileId: 1, isDefault: 1 },
+  { customerId: 1, isDefault: 1 },
   { unique: true, partialFilterExpression: { isDefault: true } }
 );
 

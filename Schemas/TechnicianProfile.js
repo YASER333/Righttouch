@@ -5,6 +5,7 @@ const geoPointSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: ["Point"],
+      default: "Point",
       required: true,
     },
     coordinates: {
@@ -32,102 +33,22 @@ const technicianProfileSchema = new mongoose.Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
       required: true,
       unique: true,
       index: true,
     },
-    email: {
-      type: String,
-      unique: true,
-      sparse: true,
-      lowercase: true,
-      trim: true,
-      match: [/^\S+@\S+\.\S+$/, "Invalid email"],
-    },
-
-    password: {
-      type: String,
-      required: true,
-      minlength: 8,
-      select: false,
-    },
-
-    firstName: {
-      type: String,
-      trim: true,
-    },
-
-    lastName: {
-      type: String,
-      trim: true,
-    },
-
-    gender: {
-      type: String,
-      enum: ["Male", "Female", "Other"],
-    },
-
-    mobileNumber: {
-      type: String,
-      unique: true,
-      sparse: true,
-      match: [/^[0-9]{10}$/, "Invalid mobile number"],
-    },
-
-    /* ==========================
-       � PROFILE IMAGE
-    ========================== */
+   
+    // Profile image (optional, not in User)
     profileImage: {
       type: String,
       trim: true,
     },
 
-    /* ==========================
-       �📍 FIXED OFFICIAL ADDRESS
-    ========================== */
-    address: {
-      type: String,
-      trim: true,
-    },
-
-    city: {
-      type: String,
-      trim: true,
-    },
-
-    state: {
-      type: String,
-      trim: true,
-    },
-
-    pincode: {
-      type: String,
-      match: [/^[0-9]{6}$/, "Invalid pincode"],
-    },
-
-    // 🌍 Optional geo location (for nearby technician matching)
-    // Stored as GeoJSON Point: [longitude, latitude]
+    // Geo location for technician matching
     location: {
-      type: {
-        type: String,
-        enum: ["Point"],
-        // ❌ Removed default to prevent partial GeoJSON objects
-      },
-      coordinates: {
-        type: [Number],
-        default: undefined,
-      },
-    },
-
-    // 📍 Display-friendly lat/long strings
-    latitude: {
-      type: String,
-      trim: true,
-    },
-
-    longitude: {
-      type: String,
-      trim: true,
+      type: geoPointSchema,
+      default: null,
     },
 
     /* ==========================
@@ -166,7 +87,9 @@ const technicianProfileSchema = new mongoose.Schema(
         serviceId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Service",
+          required: true,
         },
+        experienceYears: { type: Number, default: 0 },
       },
     ],
 
