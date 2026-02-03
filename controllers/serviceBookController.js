@@ -256,9 +256,20 @@ export const getBookings = async (req, res) => {
       filter.technicianId = technicianProfileId;
     }
 
+    // For Admin: no filter, shows all bookings
+    // For Customer/Technician: filtered by their ID
+
     const bookings = await ServiceBooking.find(filter)
-      .populate("serviceId", "serviceName")
-      .populate("customerId", "firstName lastName mobileNumber")
+      .populate("customerId", "fname lname mobileNumber email")
+      .populate("serviceId", "serviceName serviceType serviceCost")
+      .populate({
+        path: "technicianId",
+        select: "userId workStatus",
+        populate: {
+          path: "userId",
+          select: "fname lname mobileNumber"
+        }
+      })
       .sort({ createdAt: -1 });
 
     return res.status(200).json({
@@ -291,7 +302,15 @@ export const getCustomerBookings = async (req, res) => {
     const bookings = await ServiceBooking.find({
       customerId: req.user.userId,
     })
-      .populate("serviceId", "serviceName")
+      .populate("serviceId", "serviceName serviceType serviceCost")
+      .populate({
+        path: "technicianId",
+        select: "userId workStatus",
+        populate: {
+          path: "userId",
+          select: "fname lname mobileNumber"
+        }
+      })
       .sort({ createdAt: -1 });
 
     return res.status(200).json({
@@ -335,7 +354,8 @@ export const getTechnicianJobHistory = async (req, res) => {
       technicianId: technicianProfileId,
       status: { $in: ["completed", "cancelled"] },
     })
-      // .populate("bookingId")
+      .populate("customerId", "fname lname mobileNumber email")
+      .populate("serviceId", "serviceName serviceType serviceCost")
       .sort({ updatedAt: -1 });
 
     return res.status(200).json({
