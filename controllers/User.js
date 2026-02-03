@@ -9,7 +9,7 @@ export const getAllUsers = async (req, res) => {
     let users;
 
     if (role === "Customer") {
-      // Enhanced Customer aggregation with booking stats
+      // Enhanced Customer aggregation with booking stats and addresses
       users = await User.aggregate([
         {
           $match: { role: "Customer" }
@@ -31,6 +31,14 @@ export const getAllUsers = async (req, res) => {
           }
         },
         {
+          $lookup: {
+            from: "addresses",
+            localField: "_id",
+            foreignField: "customerId",
+            as: "customerAddresses"
+          }
+        },
+        {
           $project: {
             _id: 1,
             mobileNumber: 1,
@@ -41,7 +49,28 @@ export const getAllUsers = async (req, res) => {
             profile: {
               firstName: { $ifNull: ["$fname", ""] },
               lastName: { $ifNull: ["$lname", ""] },
-              gender: { $ifNull: ["$gender", ""] }
+              gender: { $ifNull: ["$gender", ""] },
+              profileComplete: { $ifNull: ["$profileComplete", false] }
+            },
+            addresses: {
+              $map: {
+                input: "$customerAddresses",
+                as: "addr",
+                in: {
+                  _id: "$$addr._id",
+                  label: "$$addr.label",
+                  name: "$$addr.name",
+                  phone: "$$addr.phone",
+                  addressLine: "$$addr.addressLine",
+                  city: "$$addr.city",
+                  state: "$$addr.state",
+                  pincode: "$$addr.pincode",
+                  latitude: "$$addr.latitude",
+                  longitude: "$$addr.longitude",
+                  isDefault: "$$addr.isDefault",
+                  createdAt: "$$addr.createdAt"
+                }
+              }
             },
             jobStats: {
               service: {
@@ -77,7 +106,7 @@ export const getAllUsers = async (req, res) => {
       ]);
 
     } else if (role === "Technician") {
-      // Enhanced Technician aggregation with profile and job stats
+      // Enhanced Technician aggregation with full profile, KYC, and job stats
       users = await User.aggregate([
         {
           $match: { role: "Technician" }
@@ -93,6 +122,20 @@ export const getAllUsers = async (req, res) => {
         {
           $unwind: {
             path: "$techProfile",
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        {
+          $lookup: {
+            from: "techniciankycs",
+            localField: "techProfile._id",
+            foreignField: "technicianId",
+            as: "kycData"
+          }
+        },
+        {
+          $unwind: {
+            path: "$kycData",
             preserveNullAndEmptyArrays: true
           }
         },
@@ -122,10 +165,9 @@ export const getAllUsers = async (req, res) => {
             profile: {
               firstName: { $ifNull: ["$fname", ""] },
               lastName: { $ifNull: ["$lname", ""] },
-              workStatus: { $ifNull: ["$techProfile.workStatus", ""] },
-              availability: { $ifNull: ["$techProfile.availability.isOnline", false] },
-              locality: { $ifNull: ["$techProfile.locality", ""] },
               experienceYears: { $ifNull: ["$techProfile.experienceYears", 0] },
+              specialization: { $ifNull: ["$techProfile.specialization", ""] },
+              profileComplete: { $ifNull: ["$techProfile.profileComplete", false] },
               skills: {
                 $ifNull: [
                   {
@@ -160,6 +202,71 @@ export const getAllUsers = async (req, res) => {
                   []
                 ]
               }
+            },
+            kyc: {
+              $cond: {
+                if: { $ne: ["$kycData", null] },
+                then: {
+                  aadhaarNumber: {
+                    $cond: {
+                      if: { $ne: ["$kycData.aadhaarNumber", null] },
+                      then: {
+                        $concat: [
+                          "XXXX-XXXX-",
+                          { $substr: ["$kycData.aadhaarNumber", 8, 4] }
+                        ]
+                      },
+                      else: null
+                    }
+                  },
+                  panNumber: {
+                    $cond: {
+                      if: { $ne: ["$kycData.panNumber", null] },
+                      then: {
+                        $concat: [
+                          { $substr: ["$kycData.panNumber", 0, 3] },
+                          "XX",
+                          { $substr: ["$kycData.panNumber", 5, 5] }
+                        ]
+                      },
+                      else: null
+                    }
+                  },
+                  drivingLicenseNumber: { $ifNull: ["$kycData.drivingLicenseNumber", null] },
+                  verificationStatus: { $ifNull: ["$kycData.verificationStatus", "pending"] },
+                  kycVerified: { $ifNull: ["$kycData.kycVerified", false] },
+                  rejectionReason: { $ifNull: ["$kycData.rejectionReason", null] },
+                  documents: {
+                    aadhaarUrl: { $ifNull: ["$kycData.documents.aadhaarUrl", null] },
+                    panUrl: { $ifNull: ["$kycData.documents.panUrl", null] },
+                    dlUrl: { $ifNull: ["$kycData.documents.dlUrl", null] }
+                  }
+                },
+                else: null
+              }
+            },
+            bankDetails: {
+              $cond: {
+                if: { $ne: ["$kycData.bankDetails", null] },
+                then: {
+                  accountHolderName: { $ifNull: ["$kycData.bankDetails.accountHolderName", null] },
+                  bankName: { $ifNull: ["$kycData.bankDetails.bankName", null] },
+                  ifscCode: { $ifNull: ["$kycData.bankDetails.ifscCode", null] },
+                  upiId: { $ifNull: ["$kycData.bankDetails.upiId", null] },
+                  bankVerified: { $ifNull: ["$kycData.bankVerified", false] },
+                  bankUpdateRequired: { $ifNull: ["$kycData.bankUpdateRequired", false] }
+                },
+                else: null
+              }
+            },
+            training: {
+              trainingCompleted: { $ifNull: ["$techProfile.trainingCompleted", false] },
+              workStatus: { $ifNull: ["$techProfile.workStatus", "pending"] },
+              approvedAt: { $ifNull: ["$techProfile.approvedAt", null] }
+            },
+            availability: {
+              isOnline: { $ifNull: ["$techProfile.availability.isOnline", false] },
+              lastSeen: { $ifNull: ["$techProfile.lastSeen", null] }
             },
             rating: {
               avg: { $ifNull: ["$techProfile.rating.avg", 0] },
@@ -357,6 +464,7 @@ import TechnicianProfile from "../Schemas/TechnicianProfile.js";
 import TechnicianKyc from "../Schemas/TechnicianKYC.js";
 import ServiceBooking from "../Schemas/ServiceBooking.js";
 import ProductBooking from "../Schemas/ProductBooking.js";
+import Address from "../Schemas/Address.js";
 import crypto from "crypto";
 
 import sendSms from "../utils/sendSMS.js";
