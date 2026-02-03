@@ -15,6 +15,9 @@ import { createWalletTransaction, getWalletHistory, requestWithdrawal, getMyWith
 
 const router = express.Router();
 
+/* ================= TECHNICIAN AUTH ================= */
+router.post("/login", technicianLogin);
+
 /* ================= TECHNICIAN DATA ================= */
 
 router.post("/technicianData", Auth, createTechnician);

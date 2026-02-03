@@ -66,10 +66,13 @@ export const technicianLogin = async (req, res) => {
   try {
     const { identifier, password } = req.body;
     if (!identifier || !password) {
-      return fail(res, 400, "Mobile & password required", "VALIDATION_ERROR");
+      return fail(res, 400, "Identifier & password required", "VALIDATION_ERROR");
     }
-    // Only allow Technician role
-    const user = await User.findOne({ mobileNumber: identifier, role: "Technician" }).select("+password role");
+    // Search by mobile number or email, only allow Technician role
+    const user = await User.findOne({ 
+      $or: [{ mobileNumber: identifier }, { email: identifier }],
+      role: "Technician" 
+    }).select("+password role");
     if (!user) return fail(res, 404, "Invalid credentials", "INVALID_CREDENTIALS");
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return fail(res, 401, "Invalid credentials", "INVALID_CREDENTIALS");
@@ -99,6 +102,47 @@ export const technicianLogin = async (req, res) => {
     return fail(res, 500, err.message, "SERVER_ERROR");
   }
 };
+
+// 🔍 DEBUG: Check if user exists by mobile number
+export const checkUserByMobile = async (req, res) => {
+  try {
+    const { mobileNumber } = req.params;
+    if (!mobileNumber) {
+      return res.status(400).json({ success: false, message: "Mobile number required", result: {} });
+    }
+    
+    const user = await User.findOne({ mobileNumber }).select("+password _id role fname lname mobileNumber email status createdAt");
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "User not found with this mobile number", 
+        result: { mobileNumber } 
+      });
+    }
+    
+    const hasPassword = !!user.password;
+    const techProfile = await TechnicianProfile.findOne({ userId: user._id }).select("_id workStatus");
+    
+    // Remove password from response
+    const userObj = user.toObject();
+    delete userObj.password;
+    
+    return res.status(200).json({ 
+      success: true, 
+      message: "User found", 
+      result: {
+        user: userObj,
+        hasPassword,
+        hasTechnicianProfile: !!techProfile,
+        technicianProfile: techProfile || null
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message, result: {} });
+  }
+};
+
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";

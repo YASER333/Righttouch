@@ -14,6 +14,7 @@ import {
   updateMyProfile,
   getUserById,
   getAllUsers,
+  checkUserByMobile,
 } from "../controllers/User.js";
 
 import {
@@ -152,6 +153,9 @@ router.post("/login/customer", authLimiter, async (req, res, next) => {
 
 // Owner login (only allows Owner role)
 router.post("/login/owner", authLimiter, ownerLogin);
+
+// 🔍 DEBUG: Check user by mobile number
+router.get("/debug/check-user/:mobileNumber", checkUserByMobile);
 
 router.get("/me", Auth, getMyProfile);
 router.post("/complete-profile", Auth, completeProfile);
