@@ -35,13 +35,22 @@ export const createAddress = async (req, res) => {
       isDefault,
     } = req.body;
 
-    if (!addressLine) {
+    console.log(req.body);
+
+    // Clean inputs
+    const cleanAddressLine = typeof addressLine === 'string' ? addressLine.trim() : "";
+    const cleanLat = latitude !== undefined && latitude !== null ? Number(latitude) : undefined;
+    const cleanLng = longitude !== undefined && longitude !== null ? Number(longitude) : undefined;
+
+    if (!cleanAddressLine && (cleanLat === undefined || cleanLng === undefined)) {
       return res.status(400).json({
         success: false,
-        message: "Address line is required",
+        message: "Address line OR location coordinates are required",
         result: {},
       });
     }
+
+    const finalAddressLine = cleanAddressLine || "Pinned Location";
 
     // 🔒 Optional safety limit
     const count = await Address.countDocuments({ customerId });
@@ -94,7 +103,7 @@ export const createAddress = async (req, res) => {
       label: label || "home",
       name: derivedName,
       phone: derivedPhone,
-      addressLine,
+      addressLine: finalAddressLine,
       city,
       state,
       pincode,
@@ -305,7 +314,7 @@ export const deleteAddress = async (req, res) => {
     res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Failed to delete address",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -369,7 +378,7 @@ export const setDefaultAddress = async (req, res) => {
     res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Failed to set default address",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -402,7 +411,7 @@ export const getDefaultAddress = async (req, res) => {
     res.status(error?.statusCode || 500).json({
       success: false,
       message: error.message || "Failed to fetch default address",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };

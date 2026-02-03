@@ -9,6 +9,7 @@ import JobBroadcast from "../Schemas/TechnicianBroadcast.js";
 import TechnicianProfile from "../Schemas/TechnicianProfile.js";
 import mongoose from "mongoose";
 import { broadcastJobToTechnicians } from "../utils/sendNotification.js";
+import { matchAndBroadcastBooking } from "../utils/technicianMatching.js";
 
 
 
@@ -25,6 +26,12 @@ const toFiniteNumber = (v) => {
   if (typeof v === "string" && v.trim() === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+};
+
+const normalizeAddressId = (v) => {
+  if (typeof v !== "string") return null;
+  const trimmed = v.trim();
+  return trimmed === "" || trimmed === "null" || trimmed === "undefined" ? null : trimmed;
 };
 
 /* ================= ADD TO CART ================= */
@@ -102,7 +109,7 @@ export const addToCart = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -144,7 +151,7 @@ export const getMyCart = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -214,7 +221,7 @@ export const updateCartItem = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -258,7 +265,7 @@ export const getCartById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -328,7 +335,7 @@ export const updateCartById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -360,7 +367,7 @@ export const removeFromCart = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -383,33 +390,31 @@ export const checkout = async (req, res) => {
         result: {},
       });
     }
-    // Check for required user fields
-    if (!req.user.fname || !req.user.mobileNumber) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        message: "Please complete your profile (firstName, mobileNumber) before checkout",
-        result: {},
-      });
-    }
+    // Check for required user fields - REMOVED to allow ad-hoc checkout with provided name/phone
+    // Logical validation happens later with derivedName/derivedPhone
+
     const addressId = normalizeAddressId(req.body?.addressId);
     const paymentMode = req.body?.paymentMode;
     const scheduledAt = req.body?.scheduledAt;
 
-    const addressLineInput = typeof req.body?.addressLine === "string" ? req.body.addressLine.trim() : "";
-    const cityInput = typeof req.body?.city === "string" ? req.body.city.trim() : undefined;
-    const stateInput = typeof req.body?.state === "string" ? req.body.state.trim() : undefined;
-    const pincodeInput = typeof req.body?.pincode === "string" ? req.body.pincode.trim() : undefined;
+    // Check for nested address object (Frontend sends this)
+    const addressPayload = req.body?.address || req.body || {};
 
-    // Support both top-level lat/lng and nested location { latitude, longitude }
+    const addressLineInput = typeof addressPayload.addressLine === "string" ? addressPayload.addressLine.trim() : "";
+    const cityInput = typeof addressPayload.city === "string" ? addressPayload.city.trim() : undefined;
+    const stateInput = typeof addressPayload.state === "string" ? addressPayload.state.trim() : undefined;
+    const pincodeInput = typeof addressPayload.pincode === "string" ? addressPayload.pincode.trim() : undefined;
+
+    // Support both top-level lat/lng and nested location { latitude, longitude } and address.latitude
     const latInput =
-      req.body?.latitude !== undefined
-        ? toFiniteNumber(req.body.latitude)
-        : toFiniteNumber(req.body?.location?.latitude);
+      toFiniteNumber(addressPayload.latitude) ??
+      toFiniteNumber(addressPayload.location?.latitude) ??
+      toFiniteNumber(req.body?.latitude);
+
     const lngInput =
-      req.body?.longitude !== undefined
-        ? toFiniteNumber(req.body.longitude)
-        : toFiniteNumber(req.body?.location?.longitude);
+      toFiniteNumber(addressPayload.longitude) ??
+      toFiniteNumber(addressPayload.location?.longitude) ??
+      toFiniteNumber(req.body?.longitude);
 
     // Validate required fields
     if (!paymentMode) {
@@ -442,84 +447,41 @@ export const checkout = async (req, res) => {
       });
     }
 
-    // Resolve address snapshot (from saved Address or from direct input)
-    let address = null;
-    let addressSnapshot = null;
+    // 🔁 Decision Logic: Address ID vs Current Location
+    let resolvedLocation;
+    try {
+      resolvedLocation = await resolveUserLocation({
+        locationType: req.body.locationType,
+        addressId: req.body.addressId,
+        latitude: req.body.latitude,
+        longitude: req.body.longitude,
+        userId: customerId,
+      });
+    } catch (locErr) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: locErr.message,
+        result: {},
+      });
+    }
 
-    if (addressId) {
-      // 🔒 Validate ObjectId
-      if (!mongoose.Types.ObjectId.isValid(addressId)) {
-        await session.abortTransaction();
-        return res.status(400).json({
-          success: false,
-          message: "Invalid addressId format",
-          result: {},
-        });
-      }
+    // Address Snapshot for both Products and Services
+    const addressSnapshot = resolvedLocation.addressSnapshot;
 
-      address = await Address.findOne({ _id: addressId, customerId }).session(session);
-      if (!address) {
-        await session.abortTransaction();
-        return res.status(404).json({
-          success: false,
-          message: "Address not found or does not belong to you",
-          result: {},
-        });
-      }
+    // Legacy support: ensure some address text exists
+    if (!addressSnapshot.addressLine) {
+      addressSnapshot.addressLine = "Pinned Location";
+    }
 
-      addressSnapshot = {
-        _id: address._id,
-        name: address.name,
-        phone: address.phone,
-        addressLine: address.addressLine,
-        city: address.city,
-        state: address.state,
-        pincode: address.pincode,
-        latitude: address.latitude,
-        longitude: address.longitude,
-      };
-    } else {
-      const derivedName = [req.user.fname, req.user.lname]
-        .filter(Boolean)
-        .join(" ")
-        .trim();
-
-      const derivedPhone = req.user.mobileNumber;
-
-      const finalAddressLine = addressLineInput || "Pinned Location";
-
-      if (!derivedName || !derivedPhone) {
-        await session.abortTransaction();
-        return res.status(400).json({
-          success: false,
-          message: "Please complete your profile (firstName, mobileNumber) before checkout",
-          result: {},
-        });
-      }
-
-      // Basic range validation when coordinates are provided
-      if (hasCoords) {
-        if (latInput < -90 || latInput > 90 || lngInput < -180 || lngInput > 180) {
-          await session.abortTransaction();
-          return res.status(400).json({
-            success: false,
-            message: "Invalid latitude/longitude range",
-            result: { latitude: latInput, longitude: lngInput },
-          });
-        }
-      }
-
-      addressSnapshot = {
-        _id: null,
-        name: derivedName,
-        phone: derivedPhone,
-        addressLine: finalAddressLine,
-        city: cityInput,
-        state: stateInput,
-        pincode: pincodeInput,
-        latitude: hasCoords ? latInput : undefined,
-        longitude: hasCoords ? lngInput : undefined,
-      };
+    // Name/Phone Fallback (if not in address, e.g. GPS flow)
+    // GPS flow might not have name/phone in snapshot initially effectively
+    // But resolveUserLocation returns what it found. 
+    // If Source=GPS, name/phone in snapshot are undefined.
+    // We should fill them from User Profile if missing.
+    if (!addressSnapshot.name || !addressSnapshot.phone) {
+      addressSnapshot.name = [req.user.fname, req.user.lname].filter(Boolean).join(" ").trim();
+      addressSnapshot.phone = req.user.mobileNumber;
     }
 
     // Get all cart items for the user
@@ -616,35 +578,26 @@ export const checkout = async (req, res) => {
         serviceId: cartItem.itemId,
         baseAmount,
         address: addressSnapshot.addressLine,
-        addressId: addressSnapshot._id,
+        addressId: resolvedLocation.addressId || null,
         scheduledAt: scheduledAt || new Date(),
         status: "requested", // phase 1: booking created, broadcast happens post-commit
+
+        // Swiggy-Style Fields
+        locationType: resolvedLocation.locationType,
+        addressSnapshot: addressSnapshot,
       };
 
-      if (hasCoordsForBooking) {
-        serviceBookingDoc.location = {
-          type: "Point",
-          coordinates: [addressSnapshot.longitude, addressSnapshot.latitude],
-        };
-      }
+      // GeoJSON Location
+      serviceBookingDoc.location = {
+        type: "Point",
+        coordinates: [resolvedLocation.longitude, resolvedLocation.latitude],
+      };
 
       const serviceBooking = await ServiceBooking.create([serviceBookingDoc], { session });
 
-      // Phase 2 happens after commit: match technicians + create JobBroadcast + emit sockets/push
+      // Queue for post-transaction broadcast
       serviceBroadcastTasks.push({
         bookingId: serviceBooking[0]._id,
-        serviceId: cartItem.itemId,
-        serviceName: service.serviceName,
-        baseAmount,
-        scheduledAt: scheduledAt || new Date(),
-        addressSnapshot: {
-          addressLine: addressSnapshot.addressLine,
-          city: addressSnapshot.city,
-          state: addressSnapshot.state,
-          pincode: addressSnapshot.pincode,
-          latitude: addressSnapshot.latitude,
-          longitude: addressSnapshot.longitude,
-        },
       });
 
       bookingResults.serviceBookings.push({
@@ -677,6 +630,14 @@ export const checkout = async (req, res) => {
         amount: finalAmount,
         paymentStatus: paymentMode === "online" ? "pending" : "pending",
         status: "active",
+
+        // Swiggy-Style Fields
+        locationType: resolvedLocation.locationType,
+        addressSnapshot: addressSnapshot,
+        location: {
+          type: "Point",
+          coordinates: [resolvedLocation.longitude, resolvedLocation.latitude],
+        }
       }], { session });
 
       bookingResults.productBookings.push({
@@ -699,94 +660,20 @@ export const checkout = async (req, res) => {
 
     await session.commitTransaction();
 
-    // Phase 2: after commit, run broadcast asynchronously (non-blocking)
-    setImmediate(async () => {
-      try {
-        // Fetch ALL technicians (NO VALIDATION per requirement)
-        const allTechnicians = await TechnicianProfile.find({}, { _id: 1 }).lean();
-        const allTechnicianIds = (Array.isArray(allTechnicians) ? allTechnicians : [])
-          .map((t) => t?._id)
-          .filter(Boolean)
-          .map((id) => id.toString());
-
-        const hasTechnicians = allTechnicianIds.length > 0;
-
-        const chunk = (arr, size) => {
-          const out = [];
-          for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-          return out;
-        };
-
+    // 7️⃣ Post-Transaction: Broadcast Jobs (Safe & Smart)
+    // We do this OUTSIDE the transaction because it involves heavy logic/sockets
+    if (serviceBroadcastTasks.length > 0) {
+      // Run in background (fire & forget) or await if you want to report status
+      (async () => {
         for (const task of serviceBroadcastTasks) {
-          // Skip broadcasting if booking already got assigned/cancelled in the meantime.
-          // We allow both "requested" and already-"broadcasted" bookings here to make retries safe.
-          const bookingStillOpen = await ServiceBooking.findOne(
-            {
-              _id: task.bookingId,
-              status: { $in: ["requested", "broadcasted"] },
-              technicianId: null,
-            },
-            { _id: 1 }
-          );
-
-          if (!bookingStillOpen) {
-            continue;
-          }
-
-          // Mark booking broadcasted only if it hasn't been assigned yet.
-          // Do this BEFORE inserting broadcasts so technicians fetching quickly can still populate.
-          await ServiceBooking.updateOne(
-            { _id: task.bookingId, status: { $in: ["requested", "broadcasted"] }, technicianId: null },
-            { $set: { status: "broadcasted" } }
-          );
-
-          const now = new Date();
-
-          const technicianIds = allTechnicianIds;
-
-          if (hasTechnicians) {
-            for (const batch of chunk(technicianIds, 1000)) {
-              try {
-                await JobBroadcast.insertMany(
-                  batch.map((technicianId) => ({
-                    bookingId: task.bookingId,
-                    technicianId,
-                    status: "sent",
-                    sentAt: now,
-                  })),
-                  { ordered: false }
-                );
-              } catch (e) {
-                // Ignore duplicate key errors due to unique (bookingId, technicianId)
-                if (e?.code !== 11000) {
-                  throw e;
-                }
-              }
-            }
-          }
-
-          // Fire-and-forget notifications (non-blocking)
-          Promise.resolve(
-            broadcastJobToTechnicians(req.io, technicianIds, {
-              bookingId: task.bookingId,
-              serviceId: task.serviceId,
-              serviceName: task.serviceName,
-              baseAmount: task.baseAmount,
-              address: task.addressSnapshot.addressLine,
-              scheduledAt: task.scheduledAt,
-            })
-          ).catch((err) => {
-            console.error("⚠️ Broadcast notification failed (non-blocking):", err);
-          });
+          await matchAndBroadcastBooking(task.bookingId, req.io);
         }
-      } catch (notifErr) {
-        console.error("⚠️ Post-commit broadcast failed (non-blocking):", notifErr);
-      }
-    });
+      })();
+    }
 
-    res.status(201).json({
+    return res.status(200).json({
       success: true,
-      message: "Checkout completed successfully",
+      message: "Order placed successfully",
       result: bookingResults,
     });
   } catch (error) {
@@ -795,7 +682,7 @@ export const checkout = async (req, res) => {
     res.status(error?.statusCode || 500).json({
       success: false,
       message: "Checkout failed: " + error.message,
-      result: {error: error.message},
+      result: { error: error.message },
     });
   } finally {
     session.endSession();

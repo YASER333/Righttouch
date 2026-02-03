@@ -75,7 +75,7 @@ export const submitTechnicianKyc = async (req, res) => {
       drivingLicenseNumber,
       bankDetails,
     } = req.body;
-    const technicianProfileId = req.user?.profileId;
+    const technicianProfileId = req.user?.technicianProfileId;
 
     if (!technicianProfileId) {
       return res.status(401).json({
@@ -220,7 +220,7 @@ export const submitTechnicianKyc = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -255,7 +255,7 @@ export const uploadTechnicianKycDocuments = async (req, res) => {
       });
     }
 
-    const technicianProfileId = req.user?.profileId;
+    const technicianProfileId = req.user?.technicianProfileId;
     if (!technicianProfileId) {
       return res.status(401).json({
         success: false,
@@ -296,7 +296,7 @@ export const uploadTechnicianKycDocuments = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -331,8 +331,8 @@ export const getAllTechnicianKyc = async (req, res) => {
 
     const technicians = technicianIds.length
       ? await TechnicianProfile.find({ _id: { $in: technicianIds } })
-          .select("userId firstName lastName skills workStatus profileComplete availability")
-          .lean()
+        .select("userId firstName lastName skills workStatus profileComplete availability")
+        .lean()
       : [];
 
     const techById = new Map(technicians.map((t) => [t._id.toString(), t]));
@@ -359,7 +359,7 @@ export const getAllTechnicianKyc = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -389,7 +389,7 @@ export const getTechnicianKyc = async (req, res) => {
 
     const isPrivileged = isOwnerOrAdmin(req);
     if (!isPrivileged) {
-      const technicianProfileId = req.user?.profileId;
+      const technicianProfileId = req.user?.technicianProfileId;
       if (!technicianProfileId || technicianProfileId.toString() !== technicianId) {
         return res.status(403).json({
           success: false,
@@ -420,7 +420,7 @@ export const getTechnicianKyc = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -428,7 +428,7 @@ export const getTechnicianKyc = async (req, res) => {
 /* ================= GET MY TECHNICIAN KYC (FROM TOKEN) ================= */
 export const getMyTechnicianKyc = async (req, res) => {
   try {
-    const technicianProfileId = req.user?.profileId;
+    const technicianProfileId = req.user?.technicianProfileId;
 
     if (!technicianProfileId || !isValidObjectId(technicianProfileId)) {
       return res.status(401).json({
@@ -542,7 +542,7 @@ export const verifyTechnicianKyc = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -650,8 +650,8 @@ export const verifyBankDetails = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Bank details update requested from technician",
-      data: { 
-        bankVerified: false, 
+      data: {
+        bankVerified: false,
         bankUpdateRequired: true,
         bankRejectionReason: kyc.bankRejectionReason || null
       },
@@ -660,7 +660,7 @@ export const verifyBankDetails = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -710,7 +710,7 @@ export const deleteTechnicianKyc = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -751,7 +751,7 @@ export const getOrphanedKyc = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -810,7 +810,7 @@ export const deleteOrphanedKyc = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -863,7 +863,7 @@ export const deleteAllOrphanedKyc = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };

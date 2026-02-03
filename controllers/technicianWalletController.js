@@ -73,7 +73,7 @@ export const createWalletTransaction = async (req, res) => {
       });
     }
 
-    if (![ "job", "penalty"].includes(source)) {
+    if (!["job", "penalty"].includes(source)) {
       return res.status(400).json({
         success: false,
         message: "Invalid transaction source",
@@ -115,7 +115,7 @@ export const createWalletTransaction = async (req, res) => {
       result: transaction,
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message, result: {error: error.message} });
+    res.status(500).json({ success: false, message: error.message, result: { error: error.message } });
   }
 };
 
@@ -165,7 +165,7 @@ export const getWalletHistory = async (req, res) => {
       result: history,
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message, result: {error: error.message} });
+    res.status(500).json({ success: false, message: error.message, result: { error: error.message } });
   }
 };
 
@@ -176,7 +176,7 @@ export const requestWithdrawal = async (req, res) => {
       return res.status(403).json({ success: false, message: "Technician access only", result: {} });
     }
 
-    const technicianId = req.user?.profileId;
+    const technicianId = req.user?.technicianProfileId;
     if (!technicianId || !isValidObjectId(technicianId)) {
       return res.status(401).json({ success: false, message: "Invalid token profile", result: {} });
     }
@@ -225,7 +225,7 @@ export const getMyWithdrawals = async (req, res) => {
     if (req.user?.role !== "Technician") {
       return res.status(403).json({ success: false, message: "Technician access only", result: {} });
     }
-    const technicianId = req.user?.profileId;
+    const technicianId = req.user?.technicianProfileId;
     if (!technicianId || !isValidObjectId(technicianId)) {
       return res.status(401).json({ success: false, message: "Invalid token profile", result: {} });
     }
@@ -242,7 +242,7 @@ export const cancelMyWithdrawal = async (req, res) => {
     if (req.user?.role !== "Technician") {
       return res.status(403).json({ success: false, message: "Technician access only", result: {} });
     }
-    const technicianId = req.user?.profileId;
+    const technicianId = req.user?.technicianProfileId;
     const { id } = req.params;
     if (!technicianId || !isValidObjectId(technicianId)) {
       return res.status(401).json({ success: false, message: "Invalid token profile", result: {} });

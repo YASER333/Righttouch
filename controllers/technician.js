@@ -78,7 +78,7 @@ const normalizeServiceIdsInput = (body) => {
 /* ================= ADD TECHNICIAN SKILLS (APPEND) ================= */
 export const addTechnicianSkills = async (req, res) => {
   try {
-    const technicianProfileId = req.user?.profileId;
+    const technicianProfileId = req.user?.technicianProfileId;
 
     if (!technicianProfileId || !isValidObjectId(technicianProfileId)) {
       return res.status(401).json({
@@ -159,7 +159,7 @@ export const addTechnicianSkills = async (req, res) => {
 /* ================= REMOVE TECHNICIAN SKILLS ================= */
 export const removeTechnicianSkills = async (req, res) => {
   try {
-    const technicianProfileId = req.user?.profileId;
+    const technicianProfileId = req.user?.technicianProfileId;
 
     if (!technicianProfileId || !isValidObjectId(technicianProfileId)) {
       return res.status(401).json({
@@ -226,7 +226,7 @@ export const removeTechnicianSkills = async (req, res) => {
 /* ================= UPDATE TECHNICIAN SKILLS ================= */
 export const createTechnician = async (req, res) => {
   try {
-    const technicianProfileId = req.user?.profileId;
+    const technicianProfileId = req.user?.technicianProfileId;
     const { skills } = req.body;
 
     if (!technicianProfileId || !isValidObjectId(technicianProfileId)) {
@@ -277,7 +277,7 @@ export const createTechnician = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -320,7 +320,7 @@ export const getAllTechnicians = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -359,7 +359,7 @@ export const getTechnicianById = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -367,7 +367,7 @@ export const getTechnicianById = async (req, res) => {
 /* ================= GET MY TECHNICIAN (FROM TOKEN) ================= */
 export const getMyTechnician = async (req, res) => {
   try {
-    const technicianProfileId = req.user?.profileId;
+    const technicianProfileId = req.user?.technicianProfileId;
 
     if (!technicianProfileId || !isValidObjectId(technicianProfileId)) {
       return res.status(401).json({
@@ -407,7 +407,7 @@ export const getMyTechnician = async (req, res) => {
 export const updateTechnician = async (req, res) => {
   try {
     const { skills, availability } = req.body;
-    const technicianProfileId = req.user?.profileId;
+    const technicianProfileId = req.user?.technicianProfileId;
 
     if (!technicianProfileId || !isValidObjectId(technicianProfileId)) {
       return res.status(401).json({
@@ -531,7 +531,7 @@ export const updateTechnician = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -602,7 +602,7 @@ export const updateTechnicianStatus = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -629,7 +629,7 @@ export const deleteTechnician = async (req, res) => {
       });
     }
 
-    const technicianProfileId = req.user?.profileId;
+    const technicianProfileId = req.user?.technicianProfileId;
     const isOwner = req.user?.role === "Owner";
     if (!isOwner && (!technicianProfileId || technician._id.toString() !== technicianProfileId.toString())) {
       return res.status(403).json({
@@ -649,7 +649,7 @@ export const deleteTechnician = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
@@ -686,7 +686,7 @@ export const updateTechnicianTraining = async (req, res) => {
     }
 
     const technician = await TechnicianProfile.findById(technicianId).select("-password");
-    
+
     if (!technician) {
       return res.status(404).json({
         success: false,
@@ -697,7 +697,7 @@ export const updateTechnicianTraining = async (req, res) => {
 
     // Update training status
     technician.trainingCompleted = trainingCompleted;
-    
+
     // If training is being set to false, force offline
     if (!trainingCompleted && technician.availability?.isOnline) {
       technician.availability.isOnline = false;
@@ -721,14 +721,14 @@ export const updateTechnicianTraining = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
 /* ================= UPLOAD TECHNICIAN PROFILE IMAGE ================= */
 export const uploadProfileImage = async (req, res) => {
   try {
-    const technicianProfileId = req.user?.profileId;
+    const technicianProfileId = req.user?.technicianProfileId;
 
     if (!technicianProfileId) {
       return res.status(401).json({
@@ -780,7 +780,7 @@ export const uploadProfileImage = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      result: {error: error.message},
+      result: { error: error.message },
     });
   }
 };
