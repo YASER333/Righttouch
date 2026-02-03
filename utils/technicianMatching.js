@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 import TechnicianProfile from "../Schemas/TechnicianProfile.js";
 import TechnicianKyc from "../Schemas/TechnicianKYC.js";
+import ServiceBooking from "../Schemas/ServiceBooking.js";
+import JobBroadcast from "../Schemas/TechnicianBroadcast.js";
+import Service from "../Schemas/Service.js";
+import { findNearbyTechnicians } from "./findNearbyTechnicians.js";
+import { broadcastJobToTechnicians } from "./sendNotification.js";
 
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -119,4 +124,133 @@ export const findEligibleTechniciansForService = async ({
     .limit(limit);
   if (session) fallbackFindQuery = fallbackFindQuery.session(session);
   return fallbackFindQuery;
+};
+
+/**
+ * Unifies the logic for matching and broadcasting a booking to technicians.
+ * Used by both Booking Creation (single) and Checkout (cart).
+ *
+ * @param {string} bookingId - The ID of the booking to process
+ * @param {Object} io - Socket.io instance for real-time notifications
+ */
+export const matchAndBroadcastBooking = async (bookingId, io) => {
+  try {
+    const booking = await ServiceBooking.findById(bookingId);
+    if (!booking) {
+      console.error(`❌ matchAndBroadcastBooking: Booking ${bookingId} not found`);
+      return { success: false, message: "Booking not found" };
+    }
+
+    if (booking.status !== "requested") {
+      // Already processed or cancelled
+      return { success: false, message: `Booking status is ${booking.status}` };
+    }
+
+    const service = await Service.findById(booking.serviceId);
+    if (!service) {
+      console.error(`❌ matchAndBroadcastBooking: Service ${booking.serviceId} not found`);
+      return { success: false, message: "Service not found" };
+    }
+
+    // Resolve Location for Matching
+    // Booking now has 'location' GeoJSON and 'addressSnapshot'
+    // We prioritize the GeoJSON coordinates.
+    let latitude, longitude;
+
+    if (booking.location && booking.location.coordinates) {
+      // GeoJSON is [lng, lat]
+      longitude = booking.location.coordinates[0];
+      latitude = booking.location.coordinates[1];
+    } else if (booking.addressSnapshot) {
+      latitude = booking.addressSnapshot.latitude;
+      longitude = booking.addressSnapshot.longitude;
+    }
+
+    if (!latitude || !longitude) {
+      console.error(`❌ matchAndBroadcastBooking: No coordinates for booking ${bookingId}`);
+      return { success: false, message: "No coordinates for booking" };
+    }
+
+    // 1. Find Eligible Technicians (Skills, Online, KYC Approved, Blocked, etc.)
+    // Note: We use the helper which checks skills & general availability
+    const eligibleTechnicians = await findEligibleTechniciansForService({
+      serviceId: booking.serviceId,
+      address: { latitude, longitude },
+      enableGeo: false, // We will do strict geo search next
+    });
+
+    const eligibleIds = eligibleTechnicians.map(t => t._id);
+
+    if (eligibleIds.length === 0) {
+      console.log(`⚠️ No eligible (online/skilled) technicians for booking ${bookingId}`);
+      // Optional: Update booking status or log
+      return { success: true, count: 0, message: "No eligible technicians found" };
+    }
+
+    // 2. Geo & Radius Search (Progressive)
+    const baseRadius = booking.radius || 3000; // Default usually 3km or 5km
+    const radiusSteps = [baseRadius, baseRadius * 2, baseRadius * 4];
+
+    let nearbyTechnicians = [];
+
+    for (const radius of radiusSteps) {
+      nearbyTechnicians = await findNearbyTechnicians({
+        latitude,
+        longitude,
+        radiusMeters: radius,
+        limit: 20, // Max technicians to ping at once
+        technicianIds: eligibleIds, // Filter the eligible ones by distance
+      });
+
+      if (nearbyTechnicians.length > 0) break;
+    }
+
+    if (nearbyTechnicians.length === 0) {
+      console.log(`⚠️ No nearby technicians found for booking ${bookingId}`);
+      await ServiceBooking.updateOne({ _id: booking._id }, { broadcastedAt: null });
+      return { success: true, count: 0, message: "No nearby technicians found" };
+    }
+
+    // 3. Create JobBroadcast Records
+    const technicianIds = nearbyTechnicians.map(t => t._id.toString());
+    const jobBroadcastDocs = technicianIds.map(technicianId => ({
+      bookingId: booking._id,
+      technicianId,
+      status: "sent",
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes expiry?
+    }));
+
+    try {
+      await JobBroadcast.insertMany(jobBroadcastDocs, { ordered: false });
+    } catch (e) {
+      // Ignore duplicates
+    }
+
+    // 4. Update Booking Status
+    await ServiceBooking.updateOne(
+      { _id: booking._id },
+      { status: "broadcasted", broadcastedAt: new Date() }
+    );
+
+    // 5. Send Notifications (Push + Socket)
+    await broadcastJobToTechnicians(
+      io,
+      technicianIds,
+      {
+        bookingId: booking._id,
+        serviceId: service._id,
+        serviceName: service.serviceName,
+        baseAmount: booking.baseAmount,
+        address: booking.address, // legacy string or snapshot line
+        scheduledAt: booking.scheduledAt,
+      }
+    );
+
+    console.log(`✅ matchAndBroadcastBooking: Broadcasted booking ${bookingId} to ${technicianIds.length} techs`);
+    return { success: true, count: technicianIds.length };
+
+  } catch (error) {
+    console.error("❌ matchAndBroadcastBooking Error:", error);
+    return { success: false, error: error.message };
+  }
 };

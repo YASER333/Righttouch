@@ -20,6 +20,36 @@ const ProductBookingSchema = new mongoose.Schema(
       min: 0,
     },
 
+    // 📍 LOCATION FOR DELIVERY
+    locationType: {
+      type: String,
+      enum: ["GPS", "ADDRESS"],
+      required: true,
+    },
+
+    addressSnapshot: {
+      addressLine: String,
+      city: String,
+      state: String,
+      pincode: String,
+      name: String,
+      phone: String,
+      latitude: Number,
+      longitude: Number,
+    },
+
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      coordinates: {
+        type: [Number], // [longitude, latitude]
+        index: "2dsphere",
+      },
+    },
+
     quantity: {
       type: Number,
       default: 1,

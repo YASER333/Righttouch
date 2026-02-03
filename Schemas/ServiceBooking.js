@@ -32,12 +32,12 @@ const serviceBookingSchema = new mongoose.Schema(
   {
 
     // 👤 CUSTOMER PROFILE
-      customerId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-        required: true,
-        index: true,
-      },
+    customerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
 
     // 🛠 SERVICE
     serviceId: {
@@ -62,7 +62,25 @@ const serviceBookingSchema = new mongoose.Schema(
       min: 0,
     },
 
-    // 📍 ADDRESS
+    // 📍 ADDRESS SNAPSHOT
+    locationType: {
+      type: String,
+      enum: ["GPS", "ADDRESS"],
+      required: true,
+    },
+
+    addressSnapshot: {
+      addressLine: String,
+      city: String,
+      state: String,
+      pincode: String,
+      name: String,
+      phone: String,
+      latitude: Number,
+      longitude: Number,
+    },
+
+    // 📍 ADDRESS (Legacy / Display String)
     address: {
       type: String,
       required: true,

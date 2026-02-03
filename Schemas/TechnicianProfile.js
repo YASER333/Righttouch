@@ -38,7 +38,7 @@ const technicianProfileSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
-   
+
     // Profile image (optional, not in User)
     profileImage: {
       type: String,
@@ -81,7 +81,7 @@ const technicianProfileSchema = new mongoose.Schema(
     /* ==========================
        🔧 TECHNICIAN OPERATIONAL DATA
     ========================== */
-    
+
     skills: [
       {
         serviceId: {
