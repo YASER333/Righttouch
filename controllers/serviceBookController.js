@@ -8,8 +8,8 @@ import { broadcastJobToTechnicians } from "../utils/sendNotification.js";
 import { findEligibleTechniciansForService } from "../utils/technicianMatching.js";
 import { findNearbyTechnicians } from "../utils/findNearbyTechnicians.js";
 import { settleBookingEarningsIfEligible } from "../utils/settlement.js";
-
 import { matchAndBroadcastBooking } from "../utils/technicianMatching.js";
+import { resolveUserLocation } from "../utils/resolveUserLocation.js";
 
 const toNumber = value => {
   const num = Number(value);
