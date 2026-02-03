@@ -1,13 +1,13 @@
 import express from "express";
 import { upload } from "../utils/cloudinaryUpload.js";
-import rateLimit from "express-rate-limit";
-
+import rateLimit from 'express-rate-limit';
 import {
   signupAndSendOtp,
   resendOtp,
   verifyOtp,
   setPassword,
   login,
+  technicianLogin,
   ownerLogin,
   getMyProfile,
   completeProfile,

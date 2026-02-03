@@ -354,56 +354,114 @@ export const getTechnicianJobHistory = async (req, res) => {
 
 
 /* =====================================================
-   GET JOB FOR (TECHNICIAN)
+   GET CURRENT JOBS (TECHNICIAN & OWNER)
 ===================================================== */
 export const getTechnicianCurrentJobs = async (req, res) => {
   try {
-    if (req.user.role !== "Technician") {
+    const userRole = req.user?.role;
+
+    // Validate role access
+    if (userRole !== "Technician" && userRole !== "Owner") {
       return res.status(403).json({
         success: false,
-        message: "Access denied",
+        message: "Access denied. Technician or Owner access only.",
         result: {},
       });
     }
 
-    const technicianProfileId = req.user?.technicianProfileId;
-    if (!technicianProfileId) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-        result: {},
-      });
-    }
-
-    const jobs = await ServiceBooking.find({
-      technicianId: technicianProfileId,
+    let query = {
       status: { $in: ["accepted", "on_the_way", "reached", "in_progress"] },
-    })
-    .populate({
-      path: "customerId",
-      select: "firstName lastName mobileNumber",
-    })
-    .populate({
-      path: "addressId",
-      select: "name phone addressLine city state pincode latitude longitude",
-    })
-    .populate({
-      path: "serviceId",
-      select: "serviceName",
-    })
-    .sort({ createdAt: -1 });
-      
+    };
+
+    // Role-based query logic
+    if (userRole === "Technician") {
+      // Technician: Only their own jobs
+      const technicianProfileId = req.user?.technicianProfileId;
+      if (!technicianProfileId) {
+        return res.status(401).json({
+          success: false,
+          message: "Unauthorized. Technician profile not found.",
+          result: {},
+        });
+      }
+      query.technicianId = technicianProfileId;
+    }
+    // If role is Owner: no additional filter, get all current jobs
+
+    const jobs = await ServiceBooking.find(query)
+      .populate({
+        path: "customerId",
+        select: "fname lname mobileNumber email",
+      })
+      .populate({
+        path: "technicianId",
+        populate: {
+          path: "userId",
+          select: "fname lname mobileNumber email",
+        },
+        select: "userId profileImage locality",
+      })
+      .populate({
+        path: "addressId",
+        select: "name phone addressLine city state pincode latitude longitude",
+      })
+      .populate({
+        path: "serviceId",
+        select: "serviceName",
+      })
+      .sort({ createdAt: -1 });
+
+    // Format response for better readability
+    const formattedJobs = jobs.map((job) => {
+      const jobObj = job.toObject();
+
+      // Format customer details
+      const customer = jobObj.customerId
+        ? {
+            name: `${jobObj.customerId.fname || ""} ${jobObj.customerId.lname || ""}`.trim() || "N/A",
+            email: jobObj.customerId.email || "N/A",
+            phone: jobObj.customerId.mobileNumber || "N/A",
+          }
+        : null;
+
+      // Format technician details
+      const technician = jobObj.technicianId
+        ? {
+            name: jobObj.technicianId.userId
+              ? `${jobObj.technicianId.userId.fname || ""} ${jobObj.technicianId.userId.lname || ""}`.trim() || "N/A"
+              : "N/A",
+            email: jobObj.technicianId.userId?.email || "N/A",
+            phone: jobObj.technicianId.userId?.mobileNumber || "N/A",
+            profileImage: jobObj.technicianId.profileImage || null,
+            locality: jobObj.technicianId.locality || "N/A",
+          }
+        : null;
+
+      return {
+        jobId: jobObj._id,
+        status: jobObj.status,
+        customer,
+        technician,
+        service: jobObj.serviceId,
+        address: jobObj.addressId,
+        baseAmount: jobObj.baseAmount,
+        scheduledAt: jobObj.scheduledAt,
+        createdAt: jobObj.createdAt,
+        acceptedAt: jobObj.assignedAt,
+        paymentStatus: jobObj.paymentStatus,
+      };
+    });
 
     return res.status(200).json({
       success: true,
-      message: "Active jobs fetched",
-      result: jobs,
+      message: `Active jobs fetched for ${userRole}`,
+      result: formattedJobs,
     });
   } catch (err) {
     return res.status(500).json({
       success: false,
       message: err.message,
-      result: {error: err.message},
+      result: { error: err.message },
     });
   }
 };

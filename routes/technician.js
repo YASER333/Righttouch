@@ -67,7 +67,7 @@ router.put("/job-broadcast/respond/:id", Auth, respondToJob);
 // Technician updates job status
 
 router.put("/status/:id", Auth, isTechnician, updateBookingStatus);
-router.get("/jobs/current", Auth, isTechnician, getTechnicianCurrentJobs);
+router.get("/jobs/current", Auth, getTechnicianCurrentJobs); // Supports both Technician and Owner roles
 router.get("/jobs/history", Auth, isTechnician, getTechnicianJobHistory);
 
 /* ================= TECHNICIAN WALLET ================= */
