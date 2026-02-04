@@ -401,11 +401,24 @@ export const getTechnicianKyc = async (req, res) => {
 
     const technician = await TechnicianProfile.findById(technicianId)
       .select("userId skills workStatus profileComplete availability")
+      .populate({
+        path: "userId",
+        select: "fname lname mobileNumber email",
+        options: { lean: true }
+      })
       .lean();
 
     const kyc = {
       ...kycDoc,
-      technicianId: technician || null,
+      technicianId: technician ? {
+        ...technician,
+        _id: technician._id,
+        firstName: technician?.userId?.fname || null,
+        lastName: technician?.userId?.lname || null,
+        mobileNumber: technician?.userId?.mobileNumber || null,
+        email: technician?.userId?.email || null,
+        userId: technician?.userId?._id || null
+      } : null,
       technicianIdRaw: technicianId,
       technicianIdMissing: false,
       orphanedTechnician: !technician,

@@ -379,6 +379,10 @@ export const getMyTechnician = async (req, res) => {
 
     const technician = await TechnicianProfile.findById(technicianProfileId)
       .populate("skills.serviceId", "serviceName")
+      .populate({
+        path: "userId",
+        select: "fname lname mobileNumber email"
+      })
       .select("-password");
 
     if (!technician) {

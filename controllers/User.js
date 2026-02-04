@@ -163,8 +163,42 @@ export const getAllUsers = async (req, res) => {
             createdAt: 1,
             lastLoginAt: 1,
             profile: {
-              firstName: { $ifNull: ["$fname", ""] },
-              lastName: { $ifNull: ["$lname", ""] },
+              firstName: {
+                $cond: [
+                  { $gt: [{ $strLenCP: { $trim: { input: { $ifNull: ["$fname", ""] } } } }, 0] },
+                  "$fname",
+                  {
+                    $let: {
+                      vars: { name: { $ifNull: ["$kycData.bankDetails.accountHolderName", ""] } },
+                      in: {
+                        $cond: [
+                          { $gt: [{ $strLenCP: { $trim: { input: "$$name" } } }, 0] },
+                          { $arrayElemAt: [{ $split: ["$$name", " "] }, 0] },
+                          ""
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              lastName: {
+                $cond: [
+                  { $gt: [{ $strLenCP: { $trim: { input: { $ifNull: ["$lname", ""] } } } }, 0] },
+                  "$lname",
+                  {
+                    $let: {
+                      vars: { name: { $ifNull: ["$kycData.bankDetails.accountHolderName", ""] } },
+                      in: {
+                        $cond: [
+                          { $gt: [{ $strLenCP: { $trim: { input: "$$name" } } }, 0] },
+                          { $arrayElemAt: [{ $split: ["$$name", " "] }, 1] },
+                          ""
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
               experienceYears: { $ifNull: ["$techProfile.experienceYears", 0] },
               specialization: { $ifNull: ["$techProfile.specialization", ""] },
               profileComplete: { $ifNull: ["$techProfile.profileComplete", false] },
@@ -207,31 +241,8 @@ export const getAllUsers = async (req, res) => {
               $cond: {
                 if: { $ne: ["$kycData", null] },
                 then: {
-                  aadhaarNumber: {
-                    $cond: {
-                      if: { $ne: ["$kycData.aadhaarNumber", null] },
-                      then: {
-                        $concat: [
-                          "XXXX-XXXX-",
-                          { $substr: ["$kycData.aadhaarNumber", 8, 4] }
-                        ]
-                      },
-                      else: null
-                    }
-                  },
-                  panNumber: {
-                    $cond: {
-                      if: { $ne: ["$kycData.panNumber", null] },
-                      then: {
-                        $concat: [
-                          { $substr: ["$kycData.panNumber", 0, 3] },
-                          "XX",
-                          { $substr: ["$kycData.panNumber", 5, 5] }
-                        ]
-                      },
-                      else: null
-                    }
-                  },
+                  aadhaarNumber: { $ifNull: ["$kycData.aadhaarNumber", null] },
+                  panNumber: { $ifNull: ["$kycData.panNumber", null] },
                   drivingLicenseNumber: { $ifNull: ["$kycData.drivingLicenseNumber", null] },
                   verificationStatus: { $ifNull: ["$kycData.verificationStatus", "pending"] },
                   kycVerified: { $ifNull: ["$kycData.kycVerified", false] },
