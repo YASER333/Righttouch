@@ -1,6 +1,7 @@
 import ServiceBooking from "../Schemas/ServiceBooking.js";
 import JobBroadcast from "../Schemas/TechnicianBroadcast.js";
 import TechnicianProfile from "../Schemas/TechnicianProfile.js";
+import TechnicianKyc from "../Schemas/TechnicianKYC.js";
 import Service from "../Schemas/Service.js";
 import Address from "../Schemas/Address.js";
 import mongoose from "mongoose";
@@ -21,6 +22,54 @@ const toFiniteNumber = (v) => {
   if (typeof v === "string" && v.trim() === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+};
+
+/* ================= TECHNICIAN ACTIVATION CHECK ================= */
+const checkTechnicianActivation = async (technicianProfileId) => {
+  try {
+    // Fetch KYC data
+    const kyc = await TechnicianKyc.findOne({
+      technicianId: technicianProfileId,
+    }).select("verificationStatus bankVerified");
+
+    // Check KYC approval
+    if (!kyc || kyc.verificationStatus !== "approved") {
+      return {
+        isActive: false,
+        message: "Complete KYC, bank verification, and training to activate technician account",
+      };
+    }
+
+    // Check bank verification
+    if (!kyc.bankVerified) {
+      return {
+        isActive: false,
+        message: "Complete KYC, bank verification, and training to activate technician account",
+      };
+    }
+
+    // Fetch technician profile
+    const profile = await TechnicianProfile.findById(technicianProfileId).select("trainingCompleted");
+
+    // Check training completion
+    if (!profile || !profile.trainingCompleted) {
+      return {
+        isActive: false,
+        message: "Complete KYC, bank verification, and training to activate technician account",
+      };
+    }
+
+    // All conditions met
+    return {
+      isActive: true,
+      message: "Technician account is active",
+    };
+  } catch (error) {
+    return {
+      isActive: false,
+      message: error.message,
+    };
+  }
 };
 
 
@@ -267,6 +316,16 @@ export const getTechnicianJobHistory = async (req, res) => {
       });
     }
 
+    // Check technician activation status
+    const activation = await checkTechnicianActivation(technicianProfileId);
+    if (!activation.isActive) {
+      return res.status(200).json({
+        success: true,
+        message: activation.message,
+        result: [],
+      });
+    }
+
     const jobs = await ServiceBooking.find({
       technicianId: technicianProfileId,
       status: { $in: ["completed", "cancelled"] },
@@ -321,6 +380,17 @@ export const getTechnicianCurrentJobs = async (req, res) => {
           result: {},
         });
       }
+
+      // Check technician activation status
+      const activation = await checkTechnicianActivation(technicianProfileId);
+      if (!activation.isActive) {
+        return res.status(200).json({
+          success: true,
+          message: activation.message,
+          result: [],
+        });
+      }
+
       query.technicianId = technicianProfileId;
     }
     // If role is Owner: no additional filter, get all current jobs
@@ -490,16 +560,17 @@ export const updateBookingStatus = async (req, res) => {
         result: { profileComplete: false },
       });
     }
-    // Check KYC status
-    const TechnicianKyc = mongoose.model('TechnicianKyc');
-    const kyc = await TechnicianKyc.findOne({ technicianId: technicianProfileId });
-    if (!kyc || kyc.verificationStatus !== "approved") {
+
+    // Check technician activation status (KYC + Bank + Training)
+    const activation = await checkTechnicianActivation(technicianProfileId);
+    if (!activation.isActive) {
       return res.status(403).json({
         success: false,
-        message: "Your KYC must be approved before updating job status. Status: " + (kyc?.verificationStatus || "not_submitted"),
-        result: { kycStatus: kyc?.verificationStatus || "not_submitted" },
+        message: activation.message,
+        result: {},
       });
     }
+
     // Check workStatus
     if (technician.workStatus !== "approved") {
       return res.status(403).json({

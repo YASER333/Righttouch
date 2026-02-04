@@ -35,9 +35,10 @@ export const findEligibleTechniciansForService = async ({
   const serviceObjectId = new mongoose.Types.ObjectId(serviceId);
   const serviceIdString = String(serviceId);
 
-  let approvedKycQuery = TechnicianKyc.find({ verificationStatus: "approved" }).select(
-    "technicianId"
-  );
+  let approvedKycQuery = TechnicianKyc.find({ 
+    verificationStatus: "approved",
+    bankVerified: true 
+  }).select("technicianId");
   if (session) approvedKycQuery = approvedKycQuery.session(session);
   const approvedKyc = await approvedKycQuery;
 

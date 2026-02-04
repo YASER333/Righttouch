@@ -12,7 +12,7 @@ const isTechnician = async (req, res, next) => {
     }
 
     // 2️⃣ Profile check
-    const profileId = req.user.profileId;
+    const profileId = req.user.technicianProfileId;
     if (!profileId) {
       return res.status(403).json({
         success: false,

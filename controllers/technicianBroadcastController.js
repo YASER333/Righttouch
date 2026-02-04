@@ -1,7 +1,57 @@
   import mongoose from "mongoose";
   import JobBroadcast from "../Schemas/TechnicianBroadcast.js";
   import ServiceBooking from "../Schemas/ServiceBooking.js";
+  import TechnicianKyc from "../Schemas/TechnicianKYC.js";
+  import TechnicianProfile from "../Schemas/TechnicianProfile.js";
   import { notifyCustomerJobAccepted, notifyJobTaken } from "../utils/sendNotification.js";
+
+  /* ================= TECHNICIAN ACTIVATION CHECK ================= */
+  const checkTechnicianActivation = async (technicianProfileId) => {
+    try {
+      // Fetch KYC data
+      const kyc = await TechnicianKyc.findOne({
+        technicianId: technicianProfileId,
+      }).select("verificationStatus bankVerified");
+
+      // Check KYC approval
+      if (!kyc || kyc.verificationStatus !== "approved") {
+        return {
+          isActive: false,
+          message: "Complete KYC, bank verification, and training to activate technician account",
+        };
+      }
+
+      // Check bank verification
+      if (!kyc.bankVerified) {
+        return {
+          isActive: false,
+          message: "Complete KYC, bank verification, and training to activate technician account",
+        };
+      }
+
+      // Fetch technician profile
+      const profile = await TechnicianProfile.findById(technicianProfileId).select("trainingCompleted");
+
+      // Check training completion
+      if (!profile || !profile.trainingCompleted) {
+        return {
+          isActive: false,
+          message: "Complete KYC, bank verification, and training to activate technician account",
+        };
+      }
+
+      // All conditions met
+      return {
+        isActive: true,
+        message: "Technician account is active",
+      };
+    } catch (error) {
+      return {
+        isActive: false,
+        message: error.message,
+      };
+    }
+  };
 
   /* ================= GET MY JOBS ================= */
   export const getMyJobs = async (req, res) => {
@@ -12,6 +62,16 @@
           success: false,
           message: "Unauthorized",
           result: {},
+        });
+      }
+
+      // Check technician activation status
+      const activation = await checkTechnicianActivation(technicianProfileId);
+      if (!activation.isActive) {
+        return res.status(200).json({
+          success: true,
+          message: activation.message,
+          result: [],
         });
       }
 
@@ -78,6 +138,17 @@
       const { id } = req.params;
       const { status } = req.body;
       const technicianProfileId = req.user?.technicianProfileId;
+
+      // Check technician activation status
+      const activation = await checkTechnicianActivation(technicianProfileId);
+      if (!activation.isActive) {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: activation.message,
+        });
+      }
+
       // Check JobBroadcast existence for this technician and booking
       const broadcast = await JobBroadcast.findOne({
         bookingId: id,
@@ -92,18 +163,12 @@
         });
       }
 
-      // Technician eligibility checks
+      // Technician eligibility checks (workStatus, isOnline)
       const TechnicianProfile = mongoose.model("TechnicianProfile");
-      const TechnicianKyc = mongoose.model("TechnicianKyc");
       const technician = await TechnicianProfile.findById(technicianProfileId).session(session);
-      if (!technician || technician.workStatus !== "approved" || !technician.trainingCompleted || !technician.availability?.isOnline) {
+      if (!technician || technician.workStatus !== "approved" || !technician.availability?.isOnline) {
         await session.abortTransaction();
         return res.status(403).json({ success: false, message: "Technician not eligible for job acceptance", result: {} });
-      }
-      const kyc = await TechnicianKyc.findOne({ technicianId: technicianProfileId }).session(session);
-      if (!kyc || kyc.verificationStatus !== "approved") {
-        await session.abortTransaction();
-        return res.status(403).json({ success: false, message: "KYC not approved", result: {} });
       }
 
       // Atomically assign booking if still open
