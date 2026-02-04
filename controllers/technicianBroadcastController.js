@@ -75,6 +75,16 @@
         });
       }
 
+      // Check if technician is online
+      const technician = await mongoose.model("TechnicianProfile").findById(technicianProfileId).select("availability");
+      if (!technician?.availability?.isOnline) {
+        return res.status(200).json({
+          success: true,
+          message: "Go online to see available jobs",
+          result: [],
+        });
+      }
+
       // Only show jobs that are broadcasted to this technician and not yet accepted, with geo filter
       const broadcasts = await JobBroadcast.find({
         technicianId: technicianProfileId,
@@ -84,16 +94,16 @@
       const bookingIds = broadcasts.map(b => b.bookingId);
 
       // Fetch technician's location for geo filter
-      const technician = await mongoose.model("TechnicianProfile").findById(technicianProfileId).select("location");
+      const technicianLocation = await mongoose.model("TechnicianProfile").findById(technicianProfileId).select("location");
       let geoFilter = {};
-      if (technician && technician.location && technician.location.type === "Point" && Array.isArray(technician.location.coordinates)) {
+      if (technicianLocation && technicianLocation.location && technicianLocation.location.type === "Point" && Array.isArray(technicianLocation.location.coordinates)) {
         geoFilter = {
           $or: [
             { location: { $exists: false } },
             {
               location: {
                 $near: {
-                  $geometry: technician.location,
+                  $geometry: technicianLocation.location,
                   $maxDistance: 10000,
                 },
               },
